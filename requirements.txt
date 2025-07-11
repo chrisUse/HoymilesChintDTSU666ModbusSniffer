@@ -1,3 +1,4 @@
 click>=7.0
 pyserial
 pymodbus<=3.0.2,>=2.3.0
+paho-mqtt
