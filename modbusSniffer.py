@@ -1,78 +1,69 @@
 import serial
+import struct
 import time
 
-# Berechnet das CRC16 für Modbus RTU (little endian)
-def calc_crc(data):
+def calc_crc(data: bytes) -> int:
     crc = 0xFFFF
     for pos in data:
         crc ^= pos
         for _ in range(8):
-            lsb = crc & 0x0001
-            crc >>= 1
-            if lsb:
+            if (crc & 0x0001) != 0:
+                crc >>= 1
                 crc ^= 0xA001
-    return crc.to_bytes(2, byteorder='little')
+            else:
+                crc >>= 1
+    return crc
 
-# Dekodiert ein vollständiges Modbus-Frame
-def decode_modbus_frame(frame):
-    addr = frame[0]
-    func = frame[1]
-    data_len = frame[2]
-    data = frame[3:3 + data_len]
-    crc_received = frame[-2:]
+def parse_float32(data_bytes):
+    values = []
+    for i in range(0, len(data_bytes) - 3, 4):
+        try:
+            val = struct.unpack('>f', data_bytes[i:i+4])[0]
+            values.append(val)
+        except:
+            values.append(None)
+    return values
 
-    crc_calculated = calc_crc(frame[:-2])
-
-    if crc_received != crc_calculated:
-        print("❌ CRC-Fehler, verwerfe Frame.")
-        return
-
-    print(f"📨 Gültiges Frame empfangen:")
-    print(f"  ➤ Adresse:        {addr}")
-    print(f"  ➤ Funktion:       {func}")
-    print(f"  ➤ Daten (Hex):    {data.hex()}")
-    print(f"  ➤ CRC korrekt ✅")
-
-# Findet ein gültiges Frame im Puffer
-def find_valid_frame(buffer):
-    for i in range(len(buffer) - 4):  # mindestens 5 Byte nötig
-        if i + 3 >= len(buffer):
-            break
-        data_len = buffer[i + 2]
-        frame_len = 3 + data_len + 2
-        if i + frame_len > len(buffer):
-            continue
-
-        candidate = buffer[i:i + frame_len]
-        if candidate[-2:] == calc_crc(candidate[:-2]):
-            return candidate, i, frame_len
+def try_parse_frame(buffer):
+    """Suche nach gültigem Frame im laufenden Buffer."""
+    for start in range(len(buffer) - 7):  # mindestens 8 Bytes
+        if buffer[start+1] == 0x03:
+            byte_count = buffer[start+2]
+            frame_len = 3 + byte_count + 2
+            if start + frame_len <= len(buffer):
+                frame = buffer[start:start + frame_len]
+                crc_received = int.from_bytes(frame[-2:], 'little')
+                crc_calc = calc_crc(frame[:-2])
+                if crc_received == crc_calc:
+                    return frame, start, frame_len
     return None, None, None
 
-# Liest den seriellen Port und sucht nach Modbus RTU Frames
-def sniff_serial(port='/dev/ttyUSB0', baudrate=9600):
-    try:
-        with serial.Serial(port, baudrate=baudrate, timeout=0.1) as ser:
-            print(f"📡 Sniffen auf {port} @ {baudrate} Baud...")
-            buffer = bytearray()
-            while True:
-                data = ser.read(256)
-                if data:
-                    buffer.extend(data)
+def decode_frame(frame):
+    addr = frame[0]
+    func = frame[1]
+    byte_count = frame[2]
+    data = frame[3:-2]
+    floats = parse_float32(data)
+    print(f"\n📨 Gültiges Frame empfangen (Adresse {addr}):")
+    print(f"  ➤ Daten (Hex): {data.hex()}")
+    print(f"  ➤ Float-Werte:")
+    for i, f in enumerate(floats):
+        print(f"    - [{i}] = {f:.3f}")
 
-                while len(buffer) >= 5:
-                    frame, start_idx, frame_len = find_valid_frame(buffer)
-                    if frame:
-                        decode_modbus_frame(frame)
-                        del buffer[:start_idx + frame_len]
-                    else:
-                        # Keine gültigen Frames mehr → erstes Byte löschen (sync shift)
-                        buffer.pop(0)
-                        break
-    except serial.SerialException as e:
-        print(f"❌ Serieller Fehler: {e}")
-    except KeyboardInterrupt:
-        print("⛔️ Sniffer gestoppt.")
+def sniff(port='/dev/ttyUSB0', baudrate=9600):
+    with serial.Serial(port, baudrate, timeout=1) as ser:
+        print(f"📡 Sniffen auf {port} @ {baudrate} Baud...")
+        buffer = bytearray()
+        while True:
+            data = ser.read(128)
+            if data:
+                buffer.extend(data)
+                frame, start, length = try_parse_frame(buffer)
+                if frame:
+                    decode_frame(frame)
+                    buffer = buffer[start+length:]  # Rest weiter analysieren
+            time.sleep(0.01)
 
-if __name__ == '__main__':
-    sniff_serial()
+if __name__ == "__main__":
+    sniff()
 
