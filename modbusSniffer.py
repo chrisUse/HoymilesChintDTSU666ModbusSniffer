@@ -12,7 +12,7 @@ MQTT_TOPIC = "dtsu666/values"
 MQTT_CLIENT_ID = "dtsu666_sniffer"
 
 # MQTT-Verbindung aufbauen
-mqtt_client = mqtt.Client(MQTT_CLIENT_ID)
+mqtt_client = mqtt.Client(client_id=MQTT_CLIENT_ID, protocol=mqtt.MQTTv311)
 mqtt_client.username_pw_set(username="user1", password="user1")
 mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
 
