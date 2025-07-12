@@ -78,6 +78,16 @@ def read_from_serial(port="/dev/ttyUSB0", baudrate=9600, timeout=1):
         # Gib Hex-String zurück, entferne Whitespaces
         return line.hex().strip()
 
+def parse_modbus_float_inverse(chunk: bytes):
+    """Dekodiert 4 Bytes Modbus-Float im Inverse-Format (C D A B -> A B C D)."""
+    if len(chunk) != 4:
+        return None
+    reordered = chunk[2:4] + chunk[0:2]  # (A B C D)
+    try:
+        return struct.unpack('>f', reordered)[0]
+    except Exception:
+        return None
+
 if __name__ == "__main__":
     serial_port = "/dev/ttyUSB0"  # passe ggf. an
     baudrate = 9600               # passe ggf. an
@@ -101,7 +111,7 @@ if __name__ == "__main__":
                 chunk = payload[i:i+4]
                 if len(chunk) < 4:
                     break
-                val = parse_float32_be(chunk)
+                val = parse_modbus_float_inverse(chunk)
                 if val is not None:
                     values.append(round(val, 3))
             mapped_values = map_values_to_labels(values)
