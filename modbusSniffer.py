@@ -58,6 +58,23 @@ def parse_modbus_rtu_frame(hex_string: str):
     # CRC = data[-2:]
     return address, function_code, payload
 
+def extract_first_valid_modbus_frame(hex_string: str):
+    """Durchsucht den Hex-String nach dem ersten gültigen Modbus-Frame und gibt (address, function_code, payload) zurück."""
+    data = bytes.fromhex(hex_string)
+    i = 0
+    while i < len(data) - 5:
+        address = data[i]
+        function_code = data[i+1]
+        byte_count = data[i+2]
+        frame_len = 3 + byte_count + 2  # 3 Header + Daten + 2 CRC
+        if i + frame_len <= len(data):
+            payload = data[i+3:i+3+byte_count]
+            # CRC = data[i+3+byte_count:i+3+byte_count+2]
+            if len(payload) == byte_count:
+                return address, function_code, payload
+        i += 1
+    return None, None, None
+
 def map_values_to_labels(values):
     """Mappt eine Liste von Werten auf Labels."""
     result = {}
@@ -99,6 +116,17 @@ def debug_modbus_float_variants(chunk: bytes):
         except Exception as e:
             print(f"    {name}: {b.hex()} = Fehler: {e}")
 
+def parse_modbus_float_inverse(data: bytes):
+    """Parst einen 4-Byte Chunk als Floating Inverse (z.B. für Power-Werte)."""
+    if len(data) != 4:
+        return None
+    try:
+        # Annahme: Die Umkehrung der Byte-Reihenfolge ergibt den korrekten Wert
+        reversed_data = data[::-1]
+        return struct.unpack(">f", reversed_data)[0]
+    except Exception:
+        return None
+
 if __name__ == "__main__":
     serial_port = "/dev/ttyUSB0"  # passe ggf. an
     baudrate = 9600               # passe ggf. an
@@ -111,36 +139,45 @@ if __name__ == "__main__":
                 continue
 
             print(f"Hex-Daten vom Sniffer: {hex_data}")
-            address, function_code, payload = parse_modbus_rtu_frame(hex_data)
+            address, function_code, payload = extract_first_valid_modbus_frame(hex_data)
             if payload is None:
-                print("❌ Ungültiger Modbus-Frame oder zu kurz!")
+                print("❌ Kein gültiger Modbus-Frame gefunden oder zu kurz!")
                 continue
 
             print(f"Payload (hex): {payload.hex()}")
             print(f"Adresse: {address}, Funktionscode: {function_code}")
 
-            # Debug: Zeige die ersten 5 Chunks ab Offset mit allen Float-Varianten
-            print(f"\n🔎 Debug Float-Interpretationen für die ersten 5 Chunks ab Offset {REGISTER_PAYLOAD_OFFSET}:")
-            for i in range(0, 20, 4):
-                idx = REGISTER_PAYLOAD_OFFSET + i
-                chunk = payload[idx:idx+4]
-                if len(chunk) < 4:
-                    break
-                print(f"Chunk {i//4+1} (Bytes {idx}-{idx+3}):")
-                debug_modbus_float_variants(chunk)
+            # Nur Modbus-Read-Register (0x03, 0x04) verarbeiten
+            if function_code not in (0x03, 0x04):
+                print(f"⚠️  Funktionscode {function_code:#04x} wird ignoriert (kein Read-Register). Frame wird übersprungen.")
+                continue
 
-            # Werte ab Offset extrahieren (Big-Endian, keine Inverse-Dekodierung)
+            # Extrahiere ab Byte 8 im Payload (offset=8)
+            offset = 8
+
+            # Prüfe, ob genug Daten für alle Werte vorhanden sind
+            max_values = min(max((len(payload) - offset) // 4, 0), len(LABELS))
+            if max_values < len(LABELS):
+                print(f"⚠️  Warnung: Payload zu kurz für alle Werte! Es werden nur {max_values} von {len(LABELS)} extrahiert.")
+
+            # Werte ab Offset extrahieren (Big-Endian für die ersten 7, dann Floating Inverse für Pt, Pa, Pb, Pc, dann wieder Big-Endian)
             values = []
-            for i in range(REGISTER_PAYLOAD_OFFSET, len(payload), 4):
+            for idx in range(max_values):
+                i = offset + idx * 4
                 chunk = payload[i:i+4]
                 if len(chunk) < 4:
                     break
-                val = parse_float32_be(chunk)
+                # LABELS: 0-6 = Uca, Ua, Ub, Uc, Ia, Ib, Ic (Big-Endian)
+                # 7-10 = Pt, Pa, Pb, Pc (Floating Inverse)
+                if 7 <= idx <= 10:
+                    val = parse_modbus_float_inverse(chunk)
+                else:
+                    val = parse_float32_be(chunk)
                 if val is not None:
                     values.append(round(val, 3))
 
             # Debug-Ausgabe: Anzahl und Inhalt der extrahierten Werte
-            print(f"\n🧩 Extrahierte Werte ab Offset {REGISTER_PAYLOAD_OFFSET} (insgesamt {len(values)} Werte):")
+            print(f"\n🧩 Extrahierte Werte ab Offset {offset} (insgesamt {len(values)} Werte):")
             for idx, v in enumerate(values[:10]):
                 print(f"  [{idx}] = {v}")
             if len(values) > 10:
