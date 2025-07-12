@@ -1,9 +1,4 @@
-import serial
-import struct
-import binascii
-import time
-import json
-import paho.mqtt.client as mqtt
+import serial, struct, binascii, time, json, paho.mqtt.client as mqtt
 
 # MQTT-Konfiguration
 MQTT_BROKER = "192.168.1.149"
@@ -13,100 +8,87 @@ MQTT_CLIENT_ID = "dtsu666_sniffer"
 MQTT_USER = "user1"
 MQTT_PASS = "user1"
 
-# MQTT-Verbindung aufbauen
 mqtt_client = mqtt.Client(client_id=MQTT_CLIENT_ID, protocol=mqtt.MQTTv311)
-mqtt_client.username_pw_set(username=MQTT_USER, password=MQTT_PASS)
+mqtt_client.username_pw_set(MQTT_USER, MQTT_PASS)
 mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+
+# Register-Mapping (Adresse = Modbus-Offset ab 0x2004)
+REGISTER_MAP = [
+    ("Uca (Phase-to-neutral Voltage)", 0x2004),
+    ("Ua (Phase-to-phase Voltage A-B)", 0x2006),
+    ("Ub (Phase-to-phase Voltage B-C)", 0x2008),
+    ("Uc (Phase-to-phase Voltage C-A)", 0x200A),
+    ("Ia (Phase current A)", 0x200C),
+    ("Ib (Phase current B)", 0x200E),
+    ("Ic (Phase current C)", 0x2010),
+    ("Pt (Total Active Power)", 0x2012),
+    ("Pa (Phase A Active Power)", 0x2014),
+    ("Pb (Phase B Active Power)", 0x2016),
+    ("Pc (Phase C Active Power)", 0x2018),
+    ("Qt (Total Reactive Power)", 0x201A),
+    ("Qa (Phase A Reactive Power)", 0x201C),
+    ("Qb (Phase B Reactive Power)", 0x201E),
+    ("Qc (Phase C Reactive Power)", 0x2020),
+    ("PFt (Total Power Factor)", 0x202A),
+    ("PFa (Phase A Power Factor)", 0x202C),
+    ("PFb (Phase B Power Factor)", 0x202E),
+    ("PFc (Phase C Power Factor)", 0x2030),
+    ("Freq (Frequency)", 0x2044),
+    ("DmPt (Demand Active Power)", 0x2050),
+]
 
 def calc_crc(data: bytes) -> int:
     crc = 0xFFFF
     for b in data:
         crc ^= b
         for _ in range(8):
-            if crc & 1:
-                crc = (crc >> 1) ^ 0xA001
-            else:
-                crc >>= 1
+            crc = (crc >> 1) ^ 0xA001 if (crc & 1) else (crc >> 1)
     return crc
 
 def check_crc(frame: bytes) -> bool:
-    data = frame[:-2]
-    # Variante 1: CRC low byte zuerst
-    received_crc = frame[-2] | (frame[-1] << 8)
-    calculated_crc = calc_crc(data)
-    if received_crc == calculated_crc:
-        return True
-    # Variante 2: CRC high byte zuerst
-    received_crc = (frame[-2] << 8) | frame[-1]
-    return received_crc == calculated_crc
+    data, rec_lo, rec_hi = frame[:-2], frame[-2], frame[-1]
+    received = rec_lo | (rec_hi << 8)
+    return received == calc_crc(data) or received == ((rec_hi << 8) | rec_lo)
 
-def hex_to_float(hex_str):
-    try:
-        b = bytes.fromhex(hex_str)
-        return struct.unpack(">f", b)[0]
-    except Exception:
-        return None
-
-def parse_data(hex_data):
-    keys = [
-        "Voltage L1", "Voltage L2", "Voltage L3",
-        "Current L1", "Current L2", "Current L3",
-        "Active Power Total", "Reactive Power Total",
-        "Apparent Power Total", "Power Factor Total",
-        "Frequency", "Energy Import", "Energy Export", "Reactive Energy",
-        "Max Voltage", "Max Current",
-        "Voltage THD", "Current THD",
-        "Unknown 18", "Unknown 19", "Unknown 20", "Unknown 21"
-    ]
-    floats = [hex_to_float(hex_data[i:i+8]) for i in range(0, len(hex_data), 8)]
-    return dict(zip(keys, floats))
+def read_float_be(b: bytes) -> float:
+    return struct.unpack(">f", b)[0]
 
 def main():
-    print("📡 Sniffen auf /dev/ttyUSB0 @ 9600 Baud...")
     ser = serial.Serial("/dev/ttyUSB0", 9600, timeout=1)
+    print("📡 Sniffen auf /dev/ttyUSB0 @ 9600 Baud...")
 
     while True:
-        # Schritt 1: Header lesen (Adresse, Funktion, Länge)
         header = ser.read(3)
-        if len(header) < 3:
+        if len(header) < 3: continue
+        addr, func, length = header
+        if addr != 0x9F or func != 0x03:
+            ser.read(ser.in_waiting or 0)
             continue
-        address, function, length = header
-
-        # Nur Modbus Funktion 3 und Adresse 0x9F (159) verarbeiten
-        if address != 0x9F or function != 0x03:
-            # falls anderer Frame, kurz ignorieren
-            ser.read(ser.in_waiting or 0)  # ggf. Clear Buffer
-            continue
-
-        # Schritt 2: Payload + CRC lesen
-        payload_crc = ser.read(length + 2)
-        if len(payload_crc) < length + 2:
-            continue
-
-        frame = header + payload_crc
-
+        body = ser.read(length + 2)
+        if len(body) < length + 2: continue
+        frame = header + body
         if not check_crc(frame):
             print("❌ CRC-Fehler, verwerfe Frame.")
             continue
 
-        # Payload (ohne Adresse, Funktion, Länge und CRC)
-        data_payload = frame[3:-2]
-        data_hex = binascii.hexlify(data_payload).decode()
+        payload = frame[3:-2]
+        values = {}
+        for name, reg_addr in REGISTER_MAP:
+            idx = (reg_addr - 0x2004) * 2  # Byte-Offset im Payload
+            if idx+4 <= len(payload):
+                try:
+                    values[name] = round(read_float_be(payload[idx:idx+4]), 3)
+                except:
+                    values[name] = None
+            else:
+                values[name] = None
 
-        print(f"📨 Gültiges Frame empfangen (Adresse {address}):")
-        print(f"  ➤ Daten (Hex): {data_hex}")
+        print("📨 Werte:")
+        for n, v in values.items():
+            print(f"  - {n}: {v}")
 
-        values = parse_data(data_hex)
-
-        print("  ➤ Float-Werte:")
-        for k, v in values.items():
-            print(f"    - {k}: {v:.3f}")
-
-        # MQTT senden
-        mqtt_payload = json.dumps(values)
-        mqtt_client.publish(MQTT_TOPIC, mqtt_payload)
-        print(f"  ✅ MQTT gesendet an '{MQTT_TOPIC}'")
-
+        mqtt_client.publish(MQTT_TOPIC, json.dumps(values))
+        print("✅ MQTT gesendet")
         time.sleep(1)
 
 if __name__ == "__main__":
