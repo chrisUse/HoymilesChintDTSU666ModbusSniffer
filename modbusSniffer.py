@@ -160,19 +160,14 @@ if __name__ == "__main__":
             if max_values < len(LABELS):
                 print(f"⚠️  Warnung: Payload zu kurz für alle Werte! Es werden nur {max_values} von {len(LABELS)} extrahiert.")
 
-            # Werte ab Offset extrahieren (Big-Endian für die ersten 7, dann Floating Inverse für Pt, Pa, Pb, Pc, dann wieder Big-Endian)
+            # Werte ab Offset extrahieren (jetzt als Big-Endian Float)
             values = []
             for idx in range(max_values):
                 i = offset + idx * 4
                 chunk = payload[i:i+4]
                 if len(chunk) < 4:
                     break
-                # LABELS: 0-6 = Uca, Ua, Ub, Uc, Ia, Ib, Ic (Big-Endian)
-                # 7-10 = Pt, Pa, Pb, Pc (Floating Inverse)
-                if 7 <= idx <= 10:
-                    val = parse_modbus_float_inverse(chunk)
-                else:
-                    val = parse_float32_be(chunk)
+                val = parse_float32_be(chunk)
                 if val is not None:
                     values.append(round(val, 3))
 
@@ -183,6 +178,16 @@ if __name__ == "__main__":
             if len(values) > 10:
                 print(f"  ... {len(values)-10} weitere Werte ...")
             print(f"Payload-Länge: {len(payload)} Bytes")
+
+            # Debug: Zeige das gesamte Payload in 4-Byte-Chunks (ab Byte 0) als Floating Inverse und Big-Endian
+            print(f"\n🔬 Debug: Alle 4-Byte-Chunks im Payload (ab Byte 0):")
+            for i in range(0, len(payload) - 3, 4):
+                chunk = payload[i:i+4]
+                if len(chunk) < 4:
+                    break
+                fi = parse_modbus_float_inverse(chunk)
+                be = parse_float32_be(chunk)
+                print(f"  Bytes {i:02}-{i+3:02}: {chunk.hex()} | Floating Inverse: {fi} | Big-Endian: {be}")
 
             mapped_values = map_values_to_labels(values)
 
