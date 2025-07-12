@@ -19,7 +19,7 @@ LABELS = [
 ]
 
 # Offset für den Start der Registerdaten im Payload (in Bytes)
-REGISTER_PAYLOAD_OFFSET = 8  # Ab hier beginnen die plausiblen Werte
+REGISTER_PAYLOAD_OFFSET = 4  # Ab hier beginnen die plausiblen Werte
 
 def parse_float32_be(data: bytes):
     """Big-Endian Float aus 4 Bytes."""
