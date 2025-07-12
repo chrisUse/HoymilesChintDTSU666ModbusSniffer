@@ -18,6 +18,9 @@ LABELS = [
     "Qc", "PFt", "PFa", "PFb", "PFc", "Freq", "DmPt"
 ]
 
+# Offset für den Start der Registerdaten im Payload (in Bytes)
+REGISTER_PAYLOAD_OFFSET = 8  # Ab hier beginnen die plausiblen Werte
+
 def parse_float32_be(data: bytes):
     """Big-Endian Float aus 4 Bytes."""
     if len(data) != 4:
@@ -78,15 +81,23 @@ def read_from_serial(port="/dev/ttyUSB0", baudrate=9600, timeout=1):
         # Gib Hex-String zurück, entferne Whitespaces
         return line.hex().strip()
 
-def parse_modbus_float_inverse(chunk: bytes):
-    """Dekodiert 4 Bytes Modbus-Float im Inverse-Format (C D A B -> A B C D)."""
+def debug_modbus_float_variants(chunk: bytes):
+    """Gibt verschiedene Interpretationen eines 4-Byte-Chunks als Float aus."""
     if len(chunk) != 4:
-        return None
-    reordered = chunk[2:4] + chunk[0:2]  # (A B C D)
-    try:
-        return struct.unpack('>f', reordered)[0]
-    except Exception:
-        return None
+        return
+    variants = {
+        'C D A B': chunk[2:4] + chunk[0:2],
+        'A B C D': chunk[0:4],
+        'B A D C': chunk[1::-1] + chunk[3:1:-1],
+        'D C B A': chunk[::-1],
+    }
+    print(f"  Bytes: {chunk.hex()}")
+    for name, b in variants.items():
+        try:
+            val = struct.unpack('>f', b)[0]
+            print(f"    {name}: {b.hex()} = {val}")
+        except Exception as e:
+            print(f"    {name}: {b.hex()} = Fehler: {e}")
 
 if __name__ == "__main__":
     serial_port = "/dev/ttyUSB0"  # passe ggf. an
@@ -105,15 +116,37 @@ if __name__ == "__main__":
                 print("❌ Ungültiger Modbus-Frame oder zu kurz!")
                 continue
 
+            print(f"Payload (hex): {payload.hex()}")
             print(f"Adresse: {address}, Funktionscode: {function_code}")
+
+            # Debug: Zeige die ersten 5 Chunks ab Offset mit allen Float-Varianten
+            print(f"\n🔎 Debug Float-Interpretationen für die ersten 5 Chunks ab Offset {REGISTER_PAYLOAD_OFFSET}:")
+            for i in range(0, 20, 4):
+                idx = REGISTER_PAYLOAD_OFFSET + i
+                chunk = payload[idx:idx+4]
+                if len(chunk) < 4:
+                    break
+                print(f"Chunk {i//4+1} (Bytes {idx}-{idx+3}):")
+                debug_modbus_float_variants(chunk)
+
+            # Werte ab Offset extrahieren (Big-Endian, keine Inverse-Dekodierung)
             values = []
-            for i in range(0, len(payload), 4):
+            for i in range(REGISTER_PAYLOAD_OFFSET, len(payload), 4):
                 chunk = payload[i:i+4]
                 if len(chunk) < 4:
                     break
-                val = parse_modbus_float_inverse(chunk)
+                val = parse_float32_be(chunk)
                 if val is not None:
                     values.append(round(val, 3))
+
+            # Debug-Ausgabe: Anzahl und Inhalt der extrahierten Werte
+            print(f"\n🧩 Extrahierte Werte ab Offset {REGISTER_PAYLOAD_OFFSET} (insgesamt {len(values)} Werte):")
+            for idx, v in enumerate(values[:10]):
+                print(f"  [{idx}] = {v}")
+            if len(values) > 10:
+                print(f"  ... {len(values)-10} weitere Werte ...")
+            print(f"Payload-Länge: {len(payload)} Bytes")
+
             mapped_values = map_values_to_labels(values)
 
             print("📨 Werte:")
