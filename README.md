@@ -118,3 +118,40 @@ Wenn keine Responses erkannt werden:
 - Prüfe, ob die Slave-Responses überhaupt im seriellen Datenstrom enthalten sind
 
 Die Implementierung wurde darauf optimiert, auch in schwierigen Situationen Responses zu erkennen und zu verarbeiten, auch wenn die typische Request-Response-Paarung nicht immer eindeutig ist.
+
+## Kommandozeilenoptionen und Debug-Modus
+
+Der Modbus RTU Sniffer unterstützt verschiedene Kommandozeilenoptionen:
+
+```bash
+python modbusSnifferV2.py [OPTIONEN]
+```
+
+### Verfügbare Optionen:
+
+- `-d, --debug`: Aktiviert den Debug-Modus für ausführliche Ausgaben
+- `-p, --port PORT`: Gibt den seriellen Port an (Standard: /dev/ttyUSB0)
+- `-b, --baudrate RATE`: Setzt die Baudrate (Standard: 9600)
+- `-i, --interval SEKUNDEN`: Ändert das MQTT Veröffentlichungsintervall (Standard: 10 Sekunden)
+
+### Debug-Modus
+
+Im Debug-Modus werden detaillierte Informationen zu jedem Modbus-Frame ausgegeben, einschließlich:
+- Rohe Frame-Daten
+- Dekodierte Register-Werte
+- Interpretierte Smart Meter Werte (Spannungen, Ströme, Leistungen, etc.)
+
+Ohne Debug-Modus werden nur wichtige Meldungen angezeigt:
+- Programmstart und -ende
+- MQTT-Veröffentlichungen
+- Fehlermeldungen
+
+Beispiel zur Aktivierung des Debug-Modus:
+```bash
+python modbusSnifferV2.py --debug
+```
+
+Beispiel mit mehreren Optionen:
+```bash
+python modbusSnifferV2.py --debug --port /dev/ttyUSB1 --baudrate 19200 --interval 5
+```

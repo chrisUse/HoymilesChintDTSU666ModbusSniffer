@@ -5,7 +5,13 @@ import struct
 import datetime
 import json
 import paho.mqtt.client as mqtt
+import argparse
+import sys
 
+# Debug-Modus Konfiguration
+DEBUG_MODE = False  # Standard: Debug-Ausgaben deaktiviert
+
+# Geräte-Konfiguration
 SERIAL_PORT = '/dev/ttyUSB0'
 BAUDRATE = 9600
 TIMEOUT = 0.1  # Sekunden
@@ -17,6 +23,21 @@ MAX_FRAME_SIZE = 256  # Maximale Größe eines Modbus RTU Frames
 # MQTT Konfiguration
 MQTT_PUBLISH_INTERVAL = 10  # Sekunden zwischen MQTT-Veröffentlichungen
 mqtt_last_publish_time = 0  # Zeitstempel der letzten Veröffentlichung
+
+# Debug-Ausgabe Funktion
+def debug_print(*args, **kwargs):
+    """
+    Gibt Debug-Informationen nur aus, wenn DEBUG_MODE aktiviert ist
+    """
+    if DEBUG_MODE:
+        print(*args, **kwargs)
+
+# Normale Ausgabe, immer anzeigen
+def log_print(*args, **kwargs):
+    """
+    Gibt wichtige Informationen immer aus, unabhängig vom Debug-Modus
+    """
+    print(*args, **kwargs)
 
 # CHINT G DTSU666 Smart Meter Register-Adressen und Formate
 # Basierend auf der Dokumentation ab Seite 11
@@ -131,7 +152,7 @@ def decode_modbus_frame(frame):
                 result['smart_meter_values'] = decode_smart_meter_registers(registers, last_request_start_addr)
             except Exception as e:
                 # Bei Fehlern bei der Dekodierung, versuche es ohne Startadresse
-                print(f"Fehler bei Dekodierung mit bekannter Startadresse: {e}")
+                debug_print(f"Fehler bei Dekodierung mit bekannter Startadresse: {e}")
                 result['smart_meter_values'] = decode_smart_meter_registers(registers)
             
             # Anfrage als verarbeitet markieren, wenn die Anzahl der Register übereinstimmt
@@ -157,21 +178,21 @@ def print_frame_info(frame_info):
     if not frame_info:
         return
     
-    print(f"\n--- MODBUS FRAME [{frame_info['timestamp']}] ---")
-    print(f"Slave-Adresse: {frame_info['slave_addr']}")
-    print(f"Funktionscode: {frame_info['function_code']} ({get_function_name(frame_info['function_code'])})")
+    debug_print(f"\n--- MODBUS FRAME [{frame_info['timestamp']}] ---")
+    debug_print(f"Slave-Adresse: {frame_info['slave_addr']}")
+    debug_print(f"Funktionscode: {frame_info['function_code']} ({get_function_name(frame_info['function_code'])})")
     
     # Bei Anfragen zusätzliche Informationen anzeigen
     if 'request_type' in frame_info and frame_info['request_type'] == 'request':
         addr_hex = f"0x{frame_info.get('start_addr', 0):04X}"
-        print(f"Anfrage: Register-Adresse {addr_hex}, Anzahl: {frame_info.get('reg_count', 0)}")
+        debug_print(f"Anfrage: Register-Adresse {addr_hex}, Anzahl: {frame_info.get('reg_count', 0)}")
         
         # Wenn bekannte Register angefragt werden, zeige die Namen an
         start_addr = frame_info.get('start_addr')
         if start_addr in REGISTER_MAP:
-            print(f"Angeforderte Werte: {REGISTER_MAP[start_addr]['name']}")
+            debug_print(f"Angeforderte Werte: {REGISTER_MAP[start_addr]['name']}")
     
-    print(f"RAW: {frame_info['raw']}")
+    debug_print(f"RAW: {frame_info['raw']}")
     
     # Zusätzliche Informationen je nach Funktionscode
     if frame_info['function_code'] == 3 and 'registers' in frame_info:
@@ -179,11 +200,11 @@ def print_frame_info(frame_info):
         if frame_info.get('request_type') == 'response':
             # Rohe Register-Werte anzeigen
             if len(frame_info['registers']) <= 20:  # Bei vielen Registern nicht alle anzeigen
-                print("Register-Werte:")
+                debug_print("Register-Werte:")
                 for i, reg in enumerate(frame_info['registers']):
-                    print(f"  Register {i}: {reg} (0x{reg:04X})")
+                    debug_print(f"  Register {i}: {reg} (0x{reg:04X})")
             else:
-                print(f"Register-Werte: {len(frame_info['registers'])} Register empfangen")
+                debug_print(f"Register-Werte: {len(frame_info['registers'])} Register empfangen")
             
             # Interpretierte Smart Meter Werte anzeigen
             if 'smart_meter_values' not in frame_info or not frame_info['smart_meter_values']:
@@ -193,7 +214,7 @@ def print_frame_info(frame_info):
                     frame_info['smart_meter_values'] = smart_meter_values
             
             if 'smart_meter_values' in frame_info and frame_info['smart_meter_values']:
-                print("\nInterpretierte Smart Meter Werte:")
+                debug_print("\nInterpretierte Smart Meter Werte:")
                 
                 # Gruppierte Ausgabe für bessere Übersicht
                 grouped_values = {
@@ -219,13 +240,13 @@ def print_frame_info(frame_info):
                 # Ausgabe der gruppierten Werte
                 for group, values in grouped_values.items():
                     if values:
-                        print(f"\n  -- {group} --")
+                        debug_print(f"\n  -- {group} --")
                         for name, info in values.items():
-                            print(f"  {name}: {info['value']:.3f} {info['unit']} (Raw: {info['raw']})")
+                            debug_print(f"  {name}: {info['value']:.3f} {info['unit']} (Raw: {info['raw']})")
     
     elif frame_info['function_code'] == 16:
-        print(f"Start-Adresse: {frame_info.get('start_addr')}")
-        print(f"Anzahl Register: {frame_info.get('reg_count')}")
+        debug_print(f"Start-Adresse: {frame_info.get('start_addr')}")
+        debug_print(f"Anzahl Register: {frame_info.get('reg_count')}")
 
 
 def get_function_name(code):
@@ -412,7 +433,8 @@ def publish_mqtt(frame_info, mqtt_config):
     if current_time - mqtt_last_publish_time < MQTT_PUBLISH_INTERVAL:
         return  # Noch nicht bereit zur Veröffentlichung
     
-    client = mqtt.Client()
+    # Verwende MQTT-Client mit API v2 (protocol=mqtt.MQTTv5)
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     if mqtt_config.get('username') and mqtt_config.get('password'):
         client.username_pw_set(mqtt_config['username'], mqtt_config['password'])
     try:
@@ -423,12 +445,12 @@ def publish_mqtt(frame_info, mqtt_config):
         }
         client.publish(mqtt_config['topic'], json.dumps(payload), qos=1)
         client.disconnect()
-        print(f"MQTT: Daten an Topic '{mqtt_config['topic']}' gesendet (Intervall: {MQTT_PUBLISH_INTERVAL}s).")
+        log_print(f"MQTT: Daten an Topic '{mqtt_config['topic']}' gesendet (Intervall: {MQTT_PUBLISH_INTERVAL}s).")
         
         # Zeitstempel der letzten Veröffentlichung aktualisieren
         mqtt_last_publish_time = current_time
     except Exception as e:
-        print(f"MQTT Fehler: {e}")
+        log_print(f"MQTT Fehler: {e}")
 
 
 # Beispiel MQTT-Konfiguration
@@ -441,23 +463,52 @@ mqtt_config = {
     'publish_interval': MQTT_PUBLISH_INTERVAL  # Veröffentlichungsintervall in Sekunden
 }
 
+# MQTT-Client API-Versionen:
+# - CallbackAPIVersion.VERSION1: Ältere, veraltete API (zeigt Deprecation-Warnung)
+# - CallbackAPIVersion.VERSION2: Aktuelle empfohlene API (behebt die Deprecation-Warnung)
+
 
 # Globale Variablen zur Speicherung der letzten Anfrage-Daten
 last_request_start_addr = None
 last_request_registers = None
 
 
+def parse_arguments():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description='Modbus RTU Sniffer für Smart Meter')
+    parser.add_argument('-d', '--debug', action='store_true', help='Debug-Modus aktivieren (ausführliche Ausgaben)')
+    parser.add_argument('-p', '--port', default=SERIAL_PORT, help=f'Serieller Port (Standard: {SERIAL_PORT})')
+    parser.add_argument('-b', '--baudrate', type=int, default=BAUDRATE, help=f'Baudrate (Standard: {BAUDRATE})')
+    parser.add_argument('-i', '--interval', type=int, default=MQTT_PUBLISH_INTERVAL, 
+                        help=f'MQTT Veröffentlichungsintervall in Sekunden (Standard: {MQTT_PUBLISH_INTERVAL})')
+    return parser.parse_args()
+
 def main():
     try:
+        global DEBUG_MODE, SERIAL_PORT, BAUDRATE, MQTT_PUBLISH_INTERVAL
         global last_request_start_addr, last_request_registers, mqtt_last_publish_time
+        
+        # Argumente parsen
+        args = parse_arguments()
+        
+        # Globale Variablen aktualisieren
+        DEBUG_MODE = args.debug
+        SERIAL_PORT = args.port
+        BAUDRATE = args.baudrate
+        MQTT_PUBLISH_INTERVAL = args.interval
+        
+        # Variablen initialisieren
         last_request_start_addr = None
         last_request_registers = None
         mqtt_last_publish_time = 0  # Zeitstempel der letzten MQTT-Veröffentlichung zurücksetzen
         
+        # Serielle Verbindung öffnen
         ser = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=TIMEOUT)
-        print(f'Sniffe Modbus RTU auf {SERIAL_PORT} mit {BAUDRATE} Baud...')
-        print(f'Drücke STRG+C zum Beenden')
-        print(f'MQTT Veröffentlichungsintervall: {MQTT_PUBLISH_INTERVAL} Sekunden')
+        log_print(f'Sniffe Modbus RTU auf {SERIAL_PORT} mit {BAUDRATE} Baud...')
+        log_print(f'Drücke STRG+C zum Beenden')
+        log_print(f'MQTT Veröffentlichungsintervall: {MQTT_PUBLISH_INTERVAL} Sekunden')
+        if DEBUG_MODE:
+            log_print(f'Debug-Modus aktiviert: Ausführliche Ausgaben werden angezeigt')
         
         buffer = b''
         last_data_time = time.time()
@@ -470,7 +521,9 @@ def main():
             if data:
                 buffer += data
                 last_data_time = current_time
-                print(".", end="", flush=True)  # Aktivitätsindikator
+                # Aktivitätsindikator nur im Debug-Modus anzeigen
+                if DEBUG_MODE:
+                    print(".", end="", flush=True)
             
             # Wenn genug Zeit ohne neue Daten vergangen ist, pufferinhalt prüfen
             if len(buffer) > 0 and (current_time - last_data_time) > TIMEOUT:
@@ -514,16 +567,22 @@ def main():
                 if len(buffer) > MAX_FRAME_SIZE * 2:
                     buffer = buffer[-MAX_FRAME_SIZE:]
             
+            # Zeige periodische Aktivitätsnachricht (unabhängig vom Debug-Modus)
+            current_minute = int(time.time()) // 60
+            if current_minute != getattr(main, 'last_activity_minute', None):
+                main.last_activity_minute = current_minute
+                log_print(f"Modbus Sniffer aktiv: {datetime.datetime.now().strftime('%H:%M:%S')}")
+            
             time.sleep(0.01)
     
     except KeyboardInterrupt:
-        print("\nProgram beendet durch Benutzer")
+        log_print("\nProgram beendet durch Benutzer")
     except serial.SerialException as e:
-        print(f"\nFehler beim Öffnen des seriellen Ports: {e}")
+        log_print(f"\nFehler beim Öffnen des seriellen Ports: {e}")
     finally:
         if 'ser' in locals() and ser.is_open:
             ser.close()
-            print("Serieller Port geschlossen")
+            log_print("Serieller Port geschlossen")
 
 
 # Globale Variablen zur Speicherung der letzten Anfrage-Daten
