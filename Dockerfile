@@ -11,4 +11,4 @@ COPY . /app
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Führe den Sniffer beim Start des Containers aus
-ENTRYPOINT ["python", "modbusSniffer.py"]
+ENTRYPOINT ["python", "modbusSnifferV2.py"]
