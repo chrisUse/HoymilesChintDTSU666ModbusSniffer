@@ -1,6 +1,6 @@
 # Modbus RTU Sniffer für DTSU666 - Zusammenfassung
 
-Dieses Dokument enthält eine Zusammenfassung der wichtigsten Erkenntnisse und Implementierungsdetails des Modbus RTU Sniffers für den DTSU666 Stromzähler.
+Dieses Dokument enthält eine Zusammenfassung der wichtigsten Erkenntnisse und Implementierungsdetails des Modbus RTU Sniffers für den DTSU666 Stromzähler. Der Code wurde von KI erstellt (Models: Claude Sonnet 3.7 und GPT4.1)
 
 ## Modbus-Kommunikation Grundlagen
 
