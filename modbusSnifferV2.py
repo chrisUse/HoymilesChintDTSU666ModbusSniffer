@@ -7,21 +7,26 @@ import json
 import paho.mqtt.client as mqtt
 import argparse
 import sys
+import os
+from dotenv import load_dotenv
+
+# Lade Umgebungsvariablen aus .env Datei
+load_dotenv()
 
 # Debug-Modus Konfiguration
-DEBUG_MODE = False  # Standard: Debug-Ausgaben deaktiviert
+DEBUG_MODE = os.getenv('DEBUG_MODE', 'false').lower() == 'true'  # Standard: Debug-Ausgaben deaktiviert
 
 # Geräte-Konfiguration
-SERIAL_PORT = '/dev/ttyUSB0'
-BAUDRATE = 9600
-TIMEOUT = 0.1  # Sekunden
+SERIAL_PORT = os.getenv('SERIAL_PORT', '/dev/ttyUSB0')
+BAUDRATE = int(os.getenv('BAUDRATE', '9600'))
+TIMEOUT = float(os.getenv('TIMEOUT', '0.1'))  # Sekunden
 
 # Modbus RTU Frame Mindestlänge: Adresse(1) + Funktion(1) + Daten(>=2) + CRC(2)
 MIN_FRAME_SIZE = 6
 MAX_FRAME_SIZE = 256  # Maximale Größe eines Modbus RTU Frames
 
 # MQTT Konfiguration
-MQTT_PUBLISH_INTERVAL = 10  # Sekunden zwischen MQTT-Veröffentlichungen
+MQTT_PUBLISH_INTERVAL = int(os.getenv('MQTT_PUBLISH_INTERVAL', '10'))  # Sekunden zwischen MQTT-Veröffentlichungen
 mqtt_last_publish_time = 0  # Zeitstempel der letzten Veröffentlichung
 
 # Debug-Ausgabe Funktion
@@ -455,11 +460,11 @@ def publish_mqtt(frame_info, mqtt_config):
 
 # Beispiel MQTT-Konfiguration
 mqtt_config = {
-    'broker': '192.168.1.149',  # z.B. '192.168.1.100'
-    'port': 1882,
-    'topic': 'smartmeter/data',
-    'username': 'user1',
-    'password': 'user1',
+    'broker': os.getenv('MQTT_BROKER', '192.168.1.100'),
+    'port': int(os.getenv('MQTT_PORT', '1883')),
+    'topic': os.getenv('MQTT_TOPIC', 'smartmeter/data'),
+    'username': os.getenv('MQTT_USERNAME', ''),
+    'password': os.getenv('MQTT_PASSWORD', ''),
     'publish_interval': MQTT_PUBLISH_INTERVAL  # Veröffentlichungsintervall in Sekunden
 }
 
@@ -476,26 +481,51 @@ last_request_registers = None
 def parse_arguments():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Modbus RTU Sniffer für Smart Meter')
-    parser.add_argument('-d', '--debug', action='store_true', help='Debug-Modus aktivieren (ausführliche Ausgaben)')
-    parser.add_argument('-p', '--port', default=SERIAL_PORT, help=f'Serieller Port (Standard: {SERIAL_PORT})')
-    parser.add_argument('-b', '--baudrate', type=int, default=BAUDRATE, help=f'Baudrate (Standard: {BAUDRATE})')
+    parser.add_argument('-d', '--debug', action='store_true', 
+                        help='Debug-Modus aktivieren (überschreibt DEBUG_MODE in .env)')
+    parser.add_argument('-p', '--port', default=SERIAL_PORT, 
+                        help=f'Serieller Port (Standard: aus .env oder {SERIAL_PORT})')
+    parser.add_argument('-b', '--baudrate', type=int, default=BAUDRATE, 
+                        help=f'Baudrate (Standard: aus .env oder {BAUDRATE})')
+    parser.add_argument('-t', '--timeout', type=float, default=TIMEOUT,
+                        help=f'Timeout für serielle Kommunikation in Sekunden (Standard: aus .env oder {TIMEOUT})')
     parser.add_argument('-i', '--interval', type=int, default=MQTT_PUBLISH_INTERVAL, 
-                        help=f'MQTT Veröffentlichungsintervall in Sekunden (Standard: {MQTT_PUBLISH_INTERVAL})')
+                        help=f'MQTT Veröffentlichungsintervall in Sekunden (Standard: aus .env oder {MQTT_PUBLISH_INTERVAL})')
+    parser.add_argument('--env', default='.env',
+                        help='Pfad zur .env Konfigurationsdatei (Standard: .env)')
     return parser.parse_args()
 
 def main():
     try:
-        global DEBUG_MODE, SERIAL_PORT, BAUDRATE, MQTT_PUBLISH_INTERVAL
+        global DEBUG_MODE, SERIAL_PORT, BAUDRATE, MQTT_PUBLISH_INTERVAL, TIMEOUT
         global last_request_start_addr, last_request_registers, mqtt_last_publish_time
         
         # Argumente parsen
         args = parse_arguments()
         
-        # Globale Variablen aktualisieren
-        DEBUG_MODE = args.debug
+        # Alternative .env Datei laden, falls angegeben
+        if args.env != '.env':
+            load_dotenv(args.env)
+            # Konfigurationswerte nach dem Laden der alternativen .env-Datei aktualisieren
+            SERIAL_PORT = os.getenv('SERIAL_PORT', '/dev/ttyUSB0')
+            BAUDRATE = int(os.getenv('BAUDRATE', '9600'))
+            TIMEOUT = float(os.getenv('TIMEOUT', '0.1'))
+            MQTT_PUBLISH_INTERVAL = int(os.getenv('MQTT_PUBLISH_INTERVAL', '10'))
+            # MQTT-Konfiguration aktualisieren
+            mqtt_config['broker'] = os.getenv('MQTT_BROKER', '192.168.1.100')
+            mqtt_config['port'] = int(os.getenv('MQTT_PORT', '1883'))
+            mqtt_config['topic'] = os.getenv('MQTT_TOPIC', 'smartmeter/data')
+            mqtt_config['username'] = os.getenv('MQTT_USERNAME', '')
+            mqtt_config['password'] = os.getenv('MQTT_PASSWORD', '')
+            mqtt_config['publish_interval'] = MQTT_PUBLISH_INTERVAL
+        
+        # Globale Variablen mit Befehlszeilenargumenten überschreiben (haben Vorrang vor .env)
+        DEBUG_MODE = args.debug or DEBUG_MODE
         SERIAL_PORT = args.port
         BAUDRATE = args.baudrate
+        TIMEOUT = args.timeout
         MQTT_PUBLISH_INTERVAL = args.interval
+        mqtt_config['publish_interval'] = MQTT_PUBLISH_INTERVAL
         
         # Variablen initialisieren
         last_request_start_addr = None
@@ -504,7 +534,7 @@ def main():
         
         # Serielle Verbindung öffnen
         ser = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=TIMEOUT)
-        log_print(f'Sniffe Modbus RTU auf {SERIAL_PORT} mit {BAUDRATE} Baud...')
+        log_print(f'Sniffe Modbus RTU auf {SERIAL_PORT} mit {BAUDRATE} Baud (Timeout: {TIMEOUT}s)...')
         log_print(f'Drücke STRG+C zum Beenden')
         log_print(f'MQTT Veröffentlichungsintervall: {MQTT_PUBLISH_INTERVAL} Sekunden')
         if DEBUG_MODE:

@@ -155,3 +155,53 @@ Beispiel mit mehreren Optionen:
 ```bash
 python modbusSnifferV2.py --debug --port /dev/ttyUSB1 --baudrate 19200 --interval 5
 ```
+
+## Konfiguration über Umgebungsdatei (.env)
+
+Der Modbus RTU Sniffer kann über eine `.env`-Datei konfiguriert werden. Dies ermöglicht eine einfache Anpassung der Konfiguration ohne den Quellcode zu ändern.
+
+### Verwendung der .env-Datei
+
+1. Kopiere die Beispieldatei `.env.example` nach `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Bearbeite die `.env`-Datei mit deinen Einstellungen:
+   ```bash
+   nano .env
+   ```
+
+3. Verfügbare Konfigurationsparameter:
+
+   **Serielle Schnittstelle:**
+   - `SERIAL_PORT`: Serieller Port (z.B. `/dev/ttyUSB0`)
+   - `BAUDRATE`: Baudrate (z.B. `9600`)
+   - `TIMEOUT`: Timeout in Sekunden (z.B. `0.1`)
+
+   **MQTT-Konfiguration:**
+   - `MQTT_BROKER`: IP-Adresse oder Hostname des MQTT-Brokers
+   - `MQTT_PORT`: Port des MQTT-Brokers
+   - `MQTT_TOPIC`: MQTT-Topic für die Daten
+   - `MQTT_USERNAME`: Benutzername für MQTT (optional)
+   - `MQTT_PASSWORD`: Passwort für MQTT (optional)
+   - `MQTT_PUBLISH_INTERVAL`: Veröffentlichungsintervall in Sekunden
+
+   **Debug-Modus:**
+   - `DEBUG_MODE`: `true` für Debug-Ausgaben, `false` für normale Ausgaben
+
+### Priorität der Konfiguration
+
+Die Konfigurationsparameter werden in folgender Reihenfolge angewendet:
+
+1. Befehlszeilenargumente (höchste Priorität)
+2. Einstellungen in der `.env`-Datei
+3. Standardwerte im Code (niedrigste Priorität)
+
+### Alternative Konfigurationsdatei
+
+Du kannst auch eine alternative Konfigurationsdatei angeben:
+
+```bash
+python modbusSnifferV2.py --env meine_config.env
+```
