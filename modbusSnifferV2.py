@@ -16,45 +16,34 @@ MAX_FRAME_SIZE = 256  # Maximale Größe eines Modbus RTU Frames
 # Basierend auf der Dokumentation ab Seite 11
 REGISTER_MAP = {
     # Spannung und Strom
-    0x2000: {"name": "Spannung Phase A", "unit": "V", "factor": 0.1, "format": "float32"},
-    0x2002: {"name": "Spannung Phase B", "unit": "V", "factor": 0.1, "format": "float32"},
-    0x2004: {"name": "Spannung Phase C", "unit": "V", "factor": 0.1, "format": "float32"},
-    0x2006: {"name": "Strom Phase A", "unit": "A", "factor": 0.1, "format": "float32"},
-    0x2008: {"name": "Strom Phase B", "unit": "A", "factor": 0.1, "format": "float32"},
-    0x200A: {"name": "Strom Phase C", "unit": "A", "factor": 0.1, "format": "float32"},
+    0x2006: {"name": "Spannung Phase A", "unit": "V", "factor": 0.1, "format": "float32"},
+    0x2008: {"name": "Spannung Phase B", "unit": "V", "factor": 0.1, "format": "float32"},
+    0x200A: {"name": "Spannung Phase C", "unit": "V", "factor": 0.1, "format": "float32"},
+    0x200C: {"name": "Strom Phase A", "unit": "A", "factor": 0.001, "format": "float32"},
+    0x200E: {"name": "Strom Phase B", "unit": "A", "factor": 0.001, "format": "float32"},
+    0x2010: {"name": "Strom Phase C", "unit": "A", "factor": 0.001, "format": "float32"},
     
     # Leistung
-    0x2014: {"name": "Wirkleistung Gesamt", "unit": "W", "factor": 0.1, "format": "float32"},
-    0x2016: {"name": "Wirkleistung Phase A", "unit": "W", "factor": 0.1, "format": "float32"},
-    0x2018: {"name": "Wirkleistung Phase B", "unit": "W", "factor": 0.1, "format": "float32"},
-    0x201A: {"name": "Wirkleistung Phase C", "unit": "W", "factor": 0.1, "format": "float32"},
-    0x201C: {"name": "Scheinleistung Gesamt", "unit": "VA", "factor": 0.1, "format": "float32"},
-    0x201E: {"name": "Scheinleistung Phase A", "unit": "VA", "factor": 0.1, "format": "float32"},
-    0x2020: {"name": "Scheinleistung Phase B", "unit": "VA", "factor": 0.1, "format": "float32"},
-    0x2022: {"name": "Scheinleistung Phase C", "unit": "VA", "factor": 0.1, "format": "float32"},
-    0x2024: {"name": "Blindleistung Gesamt", "unit": "var", "factor": 0.001, "format": "float32"},
-    0x2026: {"name": "Blindleistung Phase A", "unit": "var", "factor": 0.001, "format": "float32"},
-    0x2028: {"name": "Blindleistung Phase B", "unit": "var", "factor": 0.001, "format": "float32"},
-    0x202A: {"name": "Blindleistung Phase C", "unit": "var", "factor": 0.001, "format": "float32"},
-    
-    # Leistungsfaktor
-    0x202C: {"name": "Leistungsfaktor Gesamt", "unit": "", "factor": 0.001, "format": "float32"},
-    0x202E: {"name": "Leistungsfaktor Phase A", "unit": "", "factor": 0.001, "format": "float32"},
-    0x2030: {"name": "Leistungsfaktor Phase B", "unit": "", "factor": 0.001, "format": "float32"},
-    0x2032: {"name": "Leistungsfaktor Phase C", "unit": "", "factor": 0.001, "format": "float32"},
+    0x2012: {"name": "Wirkleistung Gesamt", "unit": "W", "factor": 0.1, "format": "float32"},
+    0x2014: {"name": "Wirkleistung Phase A", "unit": "W", "factor": 0.1, "format": "float32"},
+    0x2016: {"name": "Wirkleistung Phase B", "unit": "W", "factor": 0.1, "format": "float32"},
+    0x2018: {"name": "Wirkleistung Phase C", "unit": "W", "factor": 0.1, "format": "float32"},
+    0x201A: {"name": "Scheinleistung Gesamt", "unit": "VA", "factor": 0.001, "format": "float32"},
+    0x201C: {"name": "Scheinleistung Phase A", "unit": "VA", "factor": 0.001, "format": "float32"},
+    0x201E: {"name": "Scheinleistung Phase B", "unit": "VA", "factor": 0.001, "format": "float32"},
+    0x2020: {"name": "Scheinleistung Phase C", "unit": "VA", "factor": 0.001, "format": "float32"},
+    0x202A: {"name": "Blindleistung Gesamt", "unit": "var", "factor": 0.001, "format": "float32"},
+    0x202C: {"name": "Blindleistung Phase A", "unit": "var", "factor": 0.001, "format": "float32"},
+    0x202E: {"name": "Blindleistung Phase B", "unit": "var", "factor": 0.001, "format": "float32"},
+    0x2030: {"name": "Blindleistung Phase C", "unit": "var", "factor": 0.001, "format": "float32"},
     
     # Frequenz
     0x2044: {"name": "Frequenz", "unit": "Hz", "factor": 0.01, "format": "float32"},
     
     # Energiezähler
-    0x4000: {"name": "Wirkenergie Import (+)", "unit": "kWh", "factor": 0.01, "format": "float32"},
-    0x4004: {"name": "Wirkenergie Export (-)", "unit": "kWh", "factor": 0.01, "format": "float32"},
-    0x4008: {"name": "Blindenergie Import (+)", "unit": "kvarh", "factor": 0.01, "format": "float32"},
-    0x400C: {"name": "Blindenergie Export (-)", "unit": "kvarh", "factor": 0.01, "format": "float32"},
+    0x101E: {"name": "Wirkenergie Import (+)", "unit": "kWh", "factor": 0.01, "format": "float32"},
+    0x1028: {"name": "Wirkenergie Export (-)", "unit": "kWh", "factor": 0.01, "format": "float32"},
     
-    # Maximalwerte
-    0x4800: {"name": "Max. Wirkleistung Import", "unit": "W", "factor": 1.0, "format": "float32"},
-    0x4804: {"name": "Max. Wirkleistung Export", "unit": "W", "factor": 1.0, "format": "float32"},
 }
 
 
@@ -294,21 +283,21 @@ def decode_smart_meter_registers(registers, request_addr=None):
         # Typische Muster für Spannungs-/Strom-Daten (0x2000) erkennen
         # CHINT DTSU666 liefert typische Werte für Spannung: 220-240V (bei 0x2000)
         if len(registers) >= 2 and 17000 < registers[0] < 18000:
-            request_addr = 0x2000
+            request_addr = 0x2006
         # Typische Muster für Energiezähler (0x4000) erkennen
         elif len(registers) >= 2 and registers[0] > 30000:
             request_addr = 0x4000
         # Fallback: Wir probieren beide bekannten Startadressen
         else:
             # Versuche zuerst die Spannungs/Strom-Register zu dekodieren
-            result_2000 = try_decode_with_addr(registers, 0x2000)
+            result_2006 = try_decode_with_addr(registers, 0x2006)
             # Dann die Energiezähler-Register
             result_4000 = try_decode_with_addr(registers, 0x4000)
             
             # Verwende das Ergebnis mit mehr erkannten Werten
-            if len(result_4000) > len(result_2000):
+            if len(result_4000) > len(result_2006):
                 return result_4000
-            return result_2000
+            return result_2006
     
     return try_decode_with_addr(registers, request_addr)
 
@@ -399,80 +388,6 @@ def export_to_csv(frame_info, filename="smart_meter_data.csv"):
         
         # Daten schreiben
         writer.writerow(row_data)
-
-
-def main():
-    try:
-        global last_request_start_addr
-        last_request_start_addr = None
-        
-        ser = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=TIMEOUT)
-        print(f'Sniffe Modbus RTU auf {SERIAL_PORT} mit {BAUDRATE} Baud...')
-        print(f'Drücke STRG+C zum Beenden')
-        
-        buffer = b''
-        last_data_time = time.time()
-        
-        while True:
-            # Daten lesen
-            data = ser.read(256)
-            current_time = time.time()
-            
-            if data:
-                buffer += data
-                last_data_time = current_time
-                print(".", end="", flush=True)  # Aktivitätsindikator
-            
-            # Wenn genug Zeit ohne neue Daten vergangen ist, pufferinhalt prüfen
-            if len(buffer) > 0 and (current_time - last_data_time) > TIMEOUT:
-                frame_start = 0
-                
-                # Versuche, Frames im Buffer zu finden
-                while frame_start < len(buffer) and len(buffer) - frame_start >= MIN_FRAME_SIZE:
-                    # Versuche verschiedene Framegrößen
-                    valid_frame = None
-                    
-                    for frame_size in range(MIN_FRAME_SIZE, min(MAX_FRAME_SIZE, len(buffer) - frame_start + 1)):
-                        possible_frame = buffer[frame_start:frame_start+frame_size]
-                        if is_valid_crc(possible_frame):
-                            valid_frame = possible_frame
-                            break
-                    
-                    if valid_frame:
-                        # Frame gefunden und dekodieren
-                        frame_info = decode_modbus_frame(valid_frame)
-                        
-                        # Wenn es sich um eine Read Holding Register Anfrage handelt, 
-                        # speichere die Startadresse für die nächste Antwort
-                        if (frame_info['function_code'] == 3 and
-                            'request_type' in frame_info and 
-                            frame_info['request_type'] == 'request'):
-                            last_request_start_addr = frame_info.get('start_addr')
-                        
-                        print_frame_info(frame_info)
-                        export_to_csv(frame_info)  # Exportiere die Daten nach CSV
-                        
-                        # Buffer nach dem Frame fortsetzen
-                        buffer = buffer[frame_start + len(valid_frame):]
-                        frame_start = 0
-                    else:
-                        # Keine gültige CRC, weiter im Buffer suchen
-                        frame_start += 1
-                
-                # Wenn kein Frame gefunden wurde und der Buffer zu groß wird, älteren Teil verwerfen
-                if len(buffer) > MAX_FRAME_SIZE * 2:
-                    buffer = buffer[-MAX_FRAME_SIZE:]
-            
-            time.sleep(0.01)
-    
-    except KeyboardInterrupt:
-        print("\nProgram beendet durch Benutzer")
-    except serial.SerialException as e:
-        print(f"\nFehler beim Öffnen des seriellen Ports: {e}")
-    finally:
-        if 'ser' in locals() and ser.is_open:
-            ser.close()
-            print("Serieller Port geschlossen")
 
 
 # Globale Variablen zur Speicherung der letzten Anfrage-Daten
