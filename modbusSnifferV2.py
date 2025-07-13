@@ -12,6 +12,51 @@ TIMEOUT = 0.1  # Sekunden
 MIN_FRAME_SIZE = 6
 MAX_FRAME_SIZE = 256  # Maximale Größe eines Modbus RTU Frames
 
+# CHINT G DTSU666 Smart Meter Register-Adressen und Formate
+# Basierend auf der Dokumentation ab Seite 11
+REGISTER_MAP = {
+    # Spannung und Strom
+    0x2000: {"name": "Spannung Phase A", "unit": "V", "factor": 0.01, "format": "float32"},
+    0x2002: {"name": "Spannung Phase B", "unit": "V", "factor": 0.01, "format": "float32"},
+    0x2004: {"name": "Spannung Phase C", "unit": "V", "factor": 0.01, "format": "float32"},
+    0x2006: {"name": "Strom Phase A", "unit": "A", "factor": 0.001, "format": "float32"},
+    0x2008: {"name": "Strom Phase B", "unit": "A", "factor": 0.001, "format": "float32"},
+    0x200A: {"name": "Strom Phase C", "unit": "A", "factor": 0.001, "format": "float32"},
+    
+    # Leistung
+    0x2014: {"name": "Wirkleistung Gesamt", "unit": "W", "factor": 0.1, "format": "float32"},
+    0x2016: {"name": "Wirkleistung Phase A", "unit": "W", "factor": 0.1, "format": "float32"},
+    0x2018: {"name": "Wirkleistung Phase B", "unit": "W", "factor": 0.1, "format": "float32"},
+    0x201A: {"name": "Wirkleistung Phase C", "unit": "W", "factor": 0.1, "format": "float32"},
+    0x201C: {"name": "Scheinleistung Gesamt", "unit": "VA", "factor": 0.1, "format": "float32"},
+    0x201E: {"name": "Scheinleistung Phase A", "unit": "VA", "factor": 0.1, "format": "float32"},
+    0x2020: {"name": "Scheinleistung Phase B", "unit": "VA", "factor": 0.1, "format": "float32"},
+    0x2022: {"name": "Scheinleistung Phase C", "unit": "VA", "factor": 0.1, "format": "float32"},
+    0x2024: {"name": "Blindleistung Gesamt", "unit": "var", "factor": 0.1, "format": "float32"},
+    0x2026: {"name": "Blindleistung Phase A", "unit": "var", "factor": 0.1, "format": "float32"},
+    0x2028: {"name": "Blindleistung Phase B", "unit": "var", "factor": 0.1, "format": "float32"},
+    0x202A: {"name": "Blindleistung Phase C", "unit": "var", "factor": 0.1, "format": "float32"},
+    
+    # Leistungsfaktor
+    0x202C: {"name": "Leistungsfaktor Gesamt", "unit": "", "factor": 0.001, "format": "float32"},
+    0x202E: {"name": "Leistungsfaktor Phase A", "unit": "", "factor": 0.001, "format": "float32"},
+    0x2030: {"name": "Leistungsfaktor Phase B", "unit": "", "factor": 0.001, "format": "float32"},
+    0x2032: {"name": "Leistungsfaktor Phase C", "unit": "", "factor": 0.001, "format": "float32"},
+    
+    # Frequenz
+    0x2044: {"name": "Frequenz", "unit": "Hz", "factor": 0.01, "format": "float32"},
+    
+    # Energiezähler
+    0x4000: {"name": "Wirkenergie Import (+)", "unit": "kWh", "factor": 0.01, "format": "float32"},
+    0x4004: {"name": "Wirkenergie Export (-)", "unit": "kWh", "factor": 0.01, "format": "float32"},
+    0x4008: {"name": "Blindenergie Import (+)", "unit": "kvarh", "factor": 0.01, "format": "float32"},
+    0x400C: {"name": "Blindenergie Export (-)", "unit": "kvarh", "factor": 0.01, "format": "float32"},
+    
+    # Maximalwerte
+    0x4800: {"name": "Max. Wirkleistung Import", "unit": "W", "factor": 0.1, "format": "float32"},
+    0x4804: {"name": "Max. Wirkleistung Export", "unit": "W", "factor": 0.1, "format": "float32"},
+}
+
 
 def is_valid_crc(frame):
     if len(frame) < MIN_FRAME_SIZE:
@@ -52,8 +97,17 @@ def decode_modbus_frame(frame):
     
     # Funktion 3: Read Holding Registers
     if function_code == 3:
-        if len(frame) < 3:
+        # Beim Request
+        if len(frame) < 8:  # Anfrage hat typischerweise 8 Bytes: [Addr][FC][RegH][RegL][CountH][CountL][CRCH][CRCL]
+            if len(frame) >= 6:  # Anfrage mit StartAddr und Anzahl
+                start_addr = (frame[2] << 8) + frame[3]
+                reg_count = (frame[4] << 8) + frame[5]
+                result['request_type'] = 'request'
+                result['start_addr'] = start_addr
+                result['reg_count'] = reg_count
             return result
+        
+        # Bei der Antwort
         data_len = frame[2]
         if len(frame) < 3 + data_len:
             return result
@@ -67,8 +121,16 @@ def decode_modbus_frame(frame):
                 register_value = (data[i] << 8) + data[i+1]
                 registers.append(register_value)
         
+        result['request_type'] = 'response'
         result['data_len'] = data_len
         result['registers'] = registers
+        
+        # Wenn erste 4 Bytes des vorherigen Frames gespeichert sind, 
+        # können wir die Startadresse ermitteln
+        global last_request_start_addr
+        if last_request_start_addr is not None:
+            result['smart_meter_values'] = decode_smart_meter_registers(registers, last_request_start_addr)
+            last_request_start_addr = None
     
     # Funktion 16: Write Multiple Registers
     elif function_code == 16:
@@ -91,13 +153,32 @@ def print_frame_info(frame_info):
     print(f"\n--- MODBUS FRAME [{frame_info['timestamp']}] ---")
     print(f"Slave-Adresse: {frame_info['slave_addr']}")
     print(f"Funktionscode: {frame_info['function_code']} ({get_function_name(frame_info['function_code'])})")
+    
+    # Bei Anfragen zusätzliche Informationen anzeigen
+    if 'request_type' in frame_info and frame_info['request_type'] == 'request':
+        addr_hex = f"0x{frame_info.get('start_addr', 0):04X}"
+        print(f"Anfrage: Register-Adresse {addr_hex}, Anzahl: {frame_info.get('reg_count', 0)}")
+        
+        # Wenn bekannte Register angefragt werden, zeige die Namen an
+        start_addr = frame_info.get('start_addr')
+        if start_addr in REGISTER_MAP:
+            print(f"Angeforderte Werte: {REGISTER_MAP[start_addr]['name']}")
+    
     print(f"RAW: {frame_info['raw']}")
     
     # Zusätzliche Informationen je nach Funktionscode
     if frame_info['function_code'] == 3 and 'registers' in frame_info:
-        print("Register-Werte:")
-        for i, reg in enumerate(frame_info['registers']):
-            print(f"  Register {i}: {reg} (0x{reg:04X})")
+        # Nur bei vollständigen Antworten Register anzeigen
+        if frame_info.get('request_type') == 'response':
+            print("Register-Werte:")
+            for i, reg in enumerate(frame_info['registers']):
+                print(f"  Register {i}: {reg} (0x{reg:04X})")
+            
+            # Interpretierte Smart Meter Werte anzeigen
+            if 'smart_meter_values' in frame_info and frame_info['smart_meter_values']:
+                print("\nInterpretierte Smart Meter Werte:")
+                for name, info in frame_info['smart_meter_values'].items():
+                    print(f"  {name}: {info['value']:.3f} {info['unit']} (Raw: {info['raw']})")
     
     elif frame_info['function_code'] == 16:
         print(f"Start-Adresse: {frame_info.get('start_addr')}")
@@ -129,8 +210,66 @@ def find_frame_start(buffer):
     return -1
 
 
+def interpret_float32(high_word, low_word):
+    """
+    Interpretiert zwei 16-bit Register als Float32 (IEEE 754) Wert.
+    CHINT G DTSU666 verwendet die Reihenfolge High-Low für 32-bit Werte.
+    """
+    value_bytes = high_word.to_bytes(2, 'big') + low_word.to_bytes(2, 'big')
+    return struct.unpack('>f', value_bytes)[0]
+
+
+def decode_smart_meter_registers(registers, request_addr=None):
+    """
+    Interpretiert Register-Werte basierend auf der CHINT G DTSU666 Register-Map.
+    
+    Args:
+        registers: Liste der gelesenen Register-Werte
+        request_addr: Optional - Startadresse der Anfrage, falls bekannt
+    
+    Returns:
+        Dictionary mit interpretierten Werten
+    """
+    if not registers or len(registers) < 2:
+        return {}
+    
+    # Wenn die Anfrage-Adresse nicht bekannt ist, vermuten wir die häufigsten
+    if request_addr is None:
+        # Die meisten Anfragen sind entweder für Spannung/Strom (0x2000) oder
+        # für Energiezähler (0x4000)
+        if any(r > 30000 for r in registers[:4]):  # Große Werte deuten auf Energiezähler hin
+            request_addr = 0x4000
+        else:
+            request_addr = 0x2000
+    
+    decoded = {}
+    
+    # Interpretiere die Register als 32-bit Werte (jeweils 2 Register)
+    for i in range(0, len(registers) - 1, 2):
+        reg_addr = request_addr + i
+        if reg_addr in REGISTER_MAP:
+            reg_info = REGISTER_MAP[reg_addr]
+            high_word = registers[i]
+            low_word = registers[i + 1]
+            
+            if reg_info["format"] == "float32":
+                value = interpret_float32(high_word, low_word)
+                # Anwendung des Faktors für korrekte Einheit
+                value = value * reg_info["factor"]
+                decoded[reg_info["name"]] = {
+                    "value": value,
+                    "unit": reg_info["unit"],
+                    "raw": f"0x{high_word:04X}{low_word:04X}"
+                }
+    
+    return decoded
+
+
 def main():
     try:
+        global last_request_start_addr
+        last_request_start_addr = None
+        
         ser = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=TIMEOUT)
         print(f'Sniffe Modbus RTU auf {SERIAL_PORT} mit {BAUDRATE} Baud...')
         print(f'Drücke STRG+C zum Beenden')
@@ -166,6 +305,14 @@ def main():
                     if valid_frame:
                         # Frame gefunden und dekodieren
                         frame_info = decode_modbus_frame(valid_frame)
+                        
+                        # Wenn es sich um eine Read Holding Register Anfrage handelt, 
+                        # speichere die Startadresse für die nächste Antwort
+                        if (frame_info['function_code'] == 3 and
+                            'request_type' in frame_info and 
+                            frame_info['request_type'] == 'request'):
+                            last_request_start_addr = frame_info.get('start_addr')
+                        
                         print_frame_info(frame_info)
                         
                         # Buffer nach dem Frame fortsetzen
@@ -189,6 +336,10 @@ def main():
         if 'ser' in locals() and ser.is_open:
             ser.close()
             print("Serieller Port geschlossen")
+
+
+# Globale Variable zur Speicherung der letzten Anfrage-Adresse
+last_request_start_addr = None
 
 if __name__ == '__main__':
     main()
