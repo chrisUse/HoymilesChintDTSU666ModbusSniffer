@@ -438,6 +438,7 @@ mqtt_config = {
     'topic': 'smartmeter/data',
     'username': 'user1',
     'password': 'user1',
+    'publish_interval': MQTT_PUBLISH_INTERVAL  # Veröffentlichungsintervall in Sekunden
 }
 
 

@@ -81,3 +81,36 @@ Die Struktur des JSON-Objekts, das vom Modbus Sniffer gesendet wird, sieht so au
   }
 }
 ```
+
+## Timeout und Aktualisierungseinstellungen
+
+Das System ist mit verschiedenen Timeout- und Aktualisierungseinstellungen konfiguriert, die die Häufigkeit der Aktualisierungen kontrollieren:
+
+### Python-Skript (Modbus-Sniffer)
+
+Im `modbusSnifferV2.py` ist eine Drosselung für MQTT-Veröffentlichungen implementiert:
+
+```python
+MQTT_PUBLISH_INTERVAL = 10  # Sekunden zwischen MQTT-Veröffentlichungen
+```
+
+Dies begrenzt, wie oft Daten vom Skript an MQTT gesendet werden, unabhängig davon, wie oft Modbus-Frames erfasst werden.
+
+### Home Assistant Sensoren
+
+In der `smart_meter_sensors.yaml` sind folgende Einstellungen für jeden Sensor aktiviert:
+
+1. `throttle: 00:00:10` - Aktualisierung höchstens alle 10 Sekunden
+2. `expire_after: 600` - Sensor wird nach 10 Minuten ohne neue Daten als "unavailable" markiert
+3. `force_update: false` - Nur Aktualisieren, wenn sich der Wert ändert
+
+Diese Einstellungen reduzieren die Systemlast und die Größe der Home Assistant-Datenbank.
+
+### Anpassung der Aktualisierungsrate
+
+Um die Aktualisierungsrate zu ändern:
+
+1. Ändere `MQTT_PUBLISH_INTERVAL` im Python-Skript
+2. Passe `throttle: 00:00:10` in der YAML-Datei an (Format: HH:MM:SS)
+
+Für detaillierte Informationen siehe `timeout_settings.md`.
