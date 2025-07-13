@@ -16,26 +16,26 @@ MAX_FRAME_SIZE = 256  # Maximale Größe eines Modbus RTU Frames
 # Basierend auf der Dokumentation ab Seite 11
 REGISTER_MAP = {
     # Spannung und Strom
-    0x2000: {"name": "Spannung Phase A", "unit": "V", "factor": 0.01, "format": "float32"},
-    0x2002: {"name": "Spannung Phase B", "unit": "V", "factor": 0.01, "format": "float32"},
-    0x2004: {"name": "Spannung Phase C", "unit": "V", "factor": 0.01, "format": "float32"},
-    0x2006: {"name": "Strom Phase A", "unit": "A", "factor": 0.001, "format": "float32"},
-    0x2008: {"name": "Strom Phase B", "unit": "A", "factor": 0.001, "format": "float32"},
-    0x200A: {"name": "Strom Phase C", "unit": "A", "factor": 0.001, "format": "float32"},
+    0x2000: {"name": "Spannung Phase A", "unit": "V", "factor": 0.1, "format": "float32"},
+    0x2002: {"name": "Spannung Phase B", "unit": "V", "factor": 0.1, "format": "float32"},
+    0x2004: {"name": "Spannung Phase C", "unit": "V", "factor": 0.1, "format": "float32"},
+    0x2006: {"name": "Strom Phase A", "unit": "A", "factor": 0.1, "format": "float32"},
+    0x2008: {"name": "Strom Phase B", "unit": "A", "factor": 0.1, "format": "float32"},
+    0x200A: {"name": "Strom Phase C", "unit": "A", "factor": 0.1, "format": "float32"},
     
     # Leistung
     0x2014: {"name": "Wirkleistung Gesamt", "unit": "W", "factor": 0.1, "format": "float32"},
     0x2016: {"name": "Wirkleistung Phase A", "unit": "W", "factor": 0.1, "format": "float32"},
     0x2018: {"name": "Wirkleistung Phase B", "unit": "W", "factor": 0.1, "format": "float32"},
     0x201A: {"name": "Wirkleistung Phase C", "unit": "W", "factor": 0.1, "format": "float32"},
-    0x201C: {"name": "Scheinleistung Gesamt", "unit": "VA", "factor": 0.1, "format": "float32"},
-    0x201E: {"name": "Scheinleistung Phase A", "unit": "VA", "factor": 0.1, "format": "float32"},
-    0x2020: {"name": "Scheinleistung Phase B", "unit": "VA", "factor": 0.1, "format": "float32"},
-    0x2022: {"name": "Scheinleistung Phase C", "unit": "VA", "factor": 0.1, "format": "float32"},
-    0x2024: {"name": "Blindleistung Gesamt", "unit": "var", "factor": 0.1, "format": "float32"},
-    0x2026: {"name": "Blindleistung Phase A", "unit": "var", "factor": 0.1, "format": "float32"},
-    0x2028: {"name": "Blindleistung Phase B", "unit": "var", "factor": 0.1, "format": "float32"},
-    0x202A: {"name": "Blindleistung Phase C", "unit": "var", "factor": 0.1, "format": "float32"},
+    0x201C: {"name": "Scheinleistung Gesamt", "unit": "VA", "factor": 1.0, "format": "float32"},
+    0x201E: {"name": "Scheinleistung Phase A", "unit": "VA", "factor": 1.0, "format": "float32"},
+    0x2020: {"name": "Scheinleistung Phase B", "unit": "VA", "factor": 1.0, "format": "float32"},
+    0x2022: {"name": "Scheinleistung Phase C", "unit": "VA", "factor": 1.0, "format": "float32"},
+    0x2024: {"name": "Blindleistung Gesamt", "unit": "var", "factor": 1.0, "format": "float32"},
+    0x2026: {"name": "Blindleistung Phase A", "unit": "var", "factor": 1.0, "format": "float32"},
+    0x2028: {"name": "Blindleistung Phase B", "unit": "var", "factor": 1.0, "format": "float32"},
+    0x202A: {"name": "Blindleistung Phase C", "unit": "var", "factor": 1.0, "format": "float32"},
     
     # Leistungsfaktor
     0x202C: {"name": "Leistungsfaktor Gesamt", "unit": "", "factor": 0.001, "format": "float32"},
@@ -53,8 +53,8 @@ REGISTER_MAP = {
     0x400C: {"name": "Blindenergie Export (-)", "unit": "kvarh", "factor": 0.01, "format": "float32"},
     
     # Maximalwerte
-    0x4800: {"name": "Max. Wirkleistung Import", "unit": "W", "factor": 0.1, "format": "float32"},
-    0x4804: {"name": "Max. Wirkleistung Export", "unit": "W", "factor": 0.1, "format": "float32"},
+    0x4800: {"name": "Max. Wirkleistung Import", "unit": "W", "factor": 1.0, "format": "float32"},
+    0x4804: {"name": "Max. Wirkleistung Export", "unit": "W", "factor": 1.0, "format": "float32"},
 }
 
 
@@ -341,7 +341,7 @@ def try_decode_with_addr(registers, request_addr):
                     value = value * reg_info["factor"]
                     
                     # Plausibilitätsprüfung für einige bekannte Werte
-                    if "Spannung" in reg_info["name"] and (value < 1 or value > 500):
+                    if "Spannung" in reg_info["name"] and (value < 10 or value > 500):
                         continue  # Unplausible Spannung
                     if "Strom" in reg_info["name"] and (value < 0 or value > 100):
                         continue  # Unplausible Stromstärke
@@ -358,6 +358,47 @@ def try_decode_with_addr(registers, request_addr):
                     continue
     
     return decoded
+
+
+def export_to_csv(frame_info, filename="smart_meter_data.csv"):
+    """
+    Exportiert die interpretierten Smart Meter Werte in eine CSV-Datei.
+    
+    Args:
+        frame_info: Das Frame-Info-Dictionary mit den Smart Meter Werten
+        filename: Der Dateiname für die CSV-Datei
+    """
+    if not frame_info or 'smart_meter_values' not in frame_info or not frame_info['smart_meter_values']:
+        return
+    
+    import os
+    import csv
+    
+    # Prüfen, ob die Datei bereits existiert, um Header zu schreiben
+    file_exists = os.path.isfile(filename)
+    
+    # Dictionary mit allen Werten für diese Zeile erstellen
+    row_data = {
+        'timestamp': frame_info['timestamp']
+    }
+    
+    # Alle Smart Meter Werte zum Dictionary hinzufügen
+    for name, info in frame_info['smart_meter_values'].items():
+        row_data[name] = info['value']
+    
+    # CSV-Datei öffnen und Daten schreiben
+    with open(filename, mode='a', newline='') as csvfile:
+        # Alle Spaltennamen bestimmen
+        fieldnames = ['timestamp'] + list(frame_info['smart_meter_values'].keys())
+        
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        
+        # Header nur schreiben, wenn die Datei neu ist
+        if not file_exists:
+            writer.writeheader()
+        
+        # Daten schreiben
+        writer.writerow(row_data)
 
 
 def main():
@@ -409,6 +450,7 @@ def main():
                             last_request_start_addr = frame_info.get('start_addr')
                         
                         print_frame_info(frame_info)
+                        export_to_csv(frame_info)  # Exportiere die Daten nach CSV
                         
                         # Buffer nach dem Frame fortsetzen
                         buffer = buffer[frame_start + len(valid_frame):]
@@ -489,6 +531,7 @@ def main():
                             last_request_registers = frame_info.get('reg_count')
                         
                         print_frame_info(frame_info)
+                        export_to_csv(frame_info)  # Exportiere die Daten nach CSV
                         
                         # Buffer nach dem Frame fortsetzen
                         buffer = buffer[frame_start + len(valid_frame):]
