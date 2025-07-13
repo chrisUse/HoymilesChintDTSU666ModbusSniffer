@@ -3,6 +3,8 @@ import time
 import binascii
 import struct
 import datetime
+import json
+import paho.mqtt.client as mqtt
 
 SERIAL_PORT = '/dev/ttyUSB0'
 BAUDRATE = 9600
@@ -11,6 +13,10 @@ TIMEOUT = 0.1  # Sekunden
 # Modbus RTU Frame Mindestlänge: Adresse(1) + Funktion(1) + Daten(>=2) + CRC(2)
 MIN_FRAME_SIZE = 6
 MAX_FRAME_SIZE = 256  # Maximale Größe eines Modbus RTU Frames
+
+# MQTT Konfiguration
+MQTT_PUBLISH_INTERVAL = 10  # Sekunden zwischen MQTT-Veröffentlichungen
+mqtt_last_publish_time = 0  # Zeitstempel der letzten Veröffentlichung
 
 # CHINT G DTSU666 Smart Meter Register-Adressen und Formate
 # Basierend auf der Dokumentation ab Seite 11
@@ -390,6 +396,51 @@ def export_to_csv(frame_info, filename="smart_meter_data.csv"):
         writer.writerow(row_data)
 
 
+def publish_mqtt(frame_info, mqtt_config):
+    """
+    Sendet die dekodierten Smart Meter Werte per MQTT als JSON.
+    Args:
+        frame_info: Das Frame-Info-Dictionary mit den Smart Meter Werten
+        mqtt_config: Dictionary mit MQTT-Konfiguration
+    """
+    global mqtt_last_publish_time
+    
+    if not frame_info or 'smart_meter_values' not in frame_info or not frame_info['smart_meter_values']:
+        return
+    current_time = time.time()
+    # Überprüfen, ob das Intervall seit der letzten Veröffentlichung vergangen ist
+    if current_time - mqtt_last_publish_time < MQTT_PUBLISH_INTERVAL:
+        return  # Noch nicht bereit zur Veröffentlichung
+    
+    client = mqtt.Client()
+    if mqtt_config.get('username') and mqtt_config.get('password'):
+        client.username_pw_set(mqtt_config['username'], mqtt_config['password'])
+    try:
+        client.connect(mqtt_config['broker'], mqtt_config.get('port', 1883), 60)
+        payload = {
+            'timestamp': frame_info['timestamp'],
+            'values': frame_info['smart_meter_values']
+        }
+        client.publish(mqtt_config['topic'], json.dumps(payload), qos=1)
+        client.disconnect()
+        print(f"MQTT: Daten an Topic '{mqtt_config['topic']}' gesendet (Intervall: {MQTT_PUBLISH_INTERVAL}s).")
+        
+        # Zeitstempel der letzten Veröffentlichung aktualisieren
+        mqtt_last_publish_time = current_time
+    except Exception as e:
+        print(f"MQTT Fehler: {e}")
+
+
+# Beispiel MQTT-Konfiguration
+mqtt_config = {
+    'broker': '192.168.1.149',  # z.B. '192.168.1.100'
+    'port': 1882,
+    'topic': 'smartmeter/data',
+    'username': 'user1',
+    'password': 'user1',
+}
+
+
 # Globale Variablen zur Speicherung der letzten Anfrage-Daten
 last_request_start_addr = None
 last_request_registers = None
@@ -397,13 +448,15 @@ last_request_registers = None
 
 def main():
     try:
-        global last_request_start_addr, last_request_registers
+        global last_request_start_addr, last_request_registers, mqtt_last_publish_time
         last_request_start_addr = None
         last_request_registers = None
+        mqtt_last_publish_time = 0  # Zeitstempel der letzten MQTT-Veröffentlichung zurücksetzen
         
         ser = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=TIMEOUT)
         print(f'Sniffe Modbus RTU auf {SERIAL_PORT} mit {BAUDRATE} Baud...')
         print(f'Drücke STRG+C zum Beenden')
+        print(f'MQTT Veröffentlichungsintervall: {MQTT_PUBLISH_INTERVAL} Sekunden')
         
         buffer = b''
         last_data_time = time.time()
@@ -447,6 +500,7 @@ def main():
                         
                         print_frame_info(frame_info)
                         export_to_csv(frame_info)  # Exportiere die Daten nach CSV
+                        publish_mqtt(frame_info, mqtt_config)  # Sende die Daten per MQTT
                         
                         # Buffer nach dem Frame fortsetzen
                         buffer = buffer[frame_start + len(valid_frame):]

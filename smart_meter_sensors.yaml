@@ -1,0 +1,213 @@
+# Home Assistant YAML Konfiguration für CHINT G DTSU666 Smart Meter Daten
+# Füge diese Konfiguration in deine configuration.yaml ein oder nutze die Includes-Funktion
+# z.B. füge "sensor: !include smart_meter_sensors.yaml" zu deiner configuration.yaml hinzu
+
+# Beispiel-JSON: {"timestamp": "2025-07-13 11:37:45.036", "values": {"Spannung Phase A": {"value": 237.3, "unit": "V", "raw": "0x45145000"}, "Spannung Phase B": {"value": 237.8, "unit": "V", "raw": "0x4514A000"}, "Spannung Phase C": {"value": 237.9, "unit": "V", "raw": "0x4514B000"}, "Strom Phase A": {"value": 0.912, "unit": "A", "raw": "0x44640000"}, "Strom Phase B": {"value": 1.047, "unit": "A", "raw": "0x4482E000"}, "Strom Phase C": {"value": 0.587, "unit": "A", "raw": "0x4412C000"}, "Wirkleistung Gesamt": {"value": -6.300000000000001, "unit": "W", "raw": "0xC27C0000"}, "Wirkleistung Phase A": {"value": -202.60000000000002, "unit": "W", "raw": "0xC4FD4000"}, "Wirkleistung Phase B": {"value": 62.2, "unit": "W", "raw": "0x441B8000"}, "Wirkleistung Phase C": {"value": 134.0, "unit": "W", "raw": "0x44A78000"}, "Scheinleistung Gesamt": {"value": 1.745, "unit": "VA", "raw": "0x44DA2000"}, "Scheinleistung Phase A": {"value": -0.003, "unit": "VA", "raw": "0xC0400000"}, "Scheinleistung Phase B": {"value": 1.6480000000000001, "unit": "VA", "raw": "0x44CE0000"}, "Scheinleistung Phase C": {"value": 0.099, "unit": "VA", "raw": "0x42C60000"}, "Blindleistung Gesamt": {"value": -0.006, "unit": "var", "raw": "0xC0C00000"}, "Blindleistung Phase A": {"value": -0.9500000000000001, "unit": "var", "raw": "0xC46D8000"}, "Blindleistung Phase B": {"value": 0.258, "unit": "var", "raw": "0x43810000"}, "Blindleistung Phase C": {"value": 0.963, "unit": "var", "raw": "0x4470C000"}}}
+
+# Konfigurationsoptionen
+mqtt:
+  sensor:
+    # Aktualisierungsintervall in Sekunden (wie oft neue Werte berücksichtigt werden)
+    update_interval: 10
+
+# MQTT Sensoren für Smart Meter Daten
+sensor:
+  # Spannung Phase A als Testsensor
+  - name: "Spannung Phase A Test"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "V"
+    value_template: "{{ value_json.values['Spannung Phase A'].value }}"
+    device_class: voltage
+    state_class: measurement
+    icon: mdi:flash
+    expire_after: 600  # Wert bleibt 10 Minuten gültig, auch wenn keine neuen Daten kommen
+    throttle: 00:00:10  # Aktualisiere den Sensor maximal alle 10 Sekunden
+    force_update: false  # Optionales Update auch wenn der Wert gleich bleibt
+  
+  # Einfacher Test-Sensor für die Struktur
+  - name: "JSON Test"
+    state_topic: "smartmeter/data"
+    value_template: "{{ value_json.timestamp }}"
+    expire_after: 600  # Wert bleibt 10 Minuten gültig
+    throttle: 00:00:10  # Aktualisiere den Sensor maximal alle 10 Sekunden
+    force_update: false
+
+  # Spannungen
+  - name: "Spannung Phase A"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "V"
+    value_template: >-
+      {{ value_json['values']['Spannung Phase A']['value'] | float | round(1) }}
+    device_class: voltage
+    state_class: measurement
+    icon: mdi:flash
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10  # Aktualisierung alle 10 Sekunden
+
+  - name: "Spannung Phase B"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "V"
+    value_template: >-
+      {{ value_json['values']['Spannung Phase B']['value'] | float | round(1) }}
+    device_class: voltage
+    state_class: measurement
+    icon: mdi:flash
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10  # Aktualisierung alle 10 Sekunden
+
+  - name: "Spannung Phase C"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "V"
+    value_template: >-
+      {{ value_json['values']['Spannung Phase C']['value'] | float | round(1) }}
+    device_class: voltage
+    state_class: measurement
+    icon: mdi:flash
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10  # Aktualisierung alle 10 Sekunden
+
+  # Ströme
+  - name: "Strom Phase A"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "A"
+    value_template: >-
+      {{ value_json['values']['Strom Phase A']['value'] | float | round(3) }}
+    device_class: current
+    state_class: measurement
+    icon: mdi:current-ac
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10
+
+  - name: "Strom Phase B"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "A"
+    value_template: >-
+      {{ value_json['values']['Strom Phase B']['value'] | float | round(3) }}
+    device_class: current
+    state_class: measurement
+    icon: mdi:current-ac
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10
+
+  - name: "Strom Phase C"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "A"
+    value_template: >-
+      {{ value_json['values']['Strom Phase C']['value'] | float | round(3) }}
+    device_class: current
+    state_class: measurement
+    icon: mdi:current-ac
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10
+
+  # Leistungen
+  - name: "Wirkleistung Gesamt"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "W"
+    value_template: >-
+      {{ value_json['values']['Wirkleistung Gesamt']['value'] | float | round(1) }}
+    device_class: power
+    state_class: measurement
+    icon: mdi:transmission-tower
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10
+
+  - name: "Wirkleistung Phase A"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "W"
+    value_template: >-
+      {{ value_json['values']['Wirkleistung Phase A']['value'] | float | round(1) }}
+    device_class: power
+    state_class: measurement
+    icon: mdi:transmission-tower
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10
+
+  - name: "Wirkleistung Phase B"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "W"
+    value_template: >-
+      {{ value_json['values']['Wirkleistung Phase B']['value'] | float | round(1) }}
+    device_class: power
+    state_class: measurement
+    icon: mdi:transmission-tower
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10
+
+  - name: "Wirkleistung Phase C"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "W"
+    value_template: >-
+      {{ value_json['values']['Wirkleistung Phase C']['value'] | float | round(1) }}
+    device_class: power
+    state_class: measurement
+    icon: mdi:transmission-tower
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10
+
+  - name: "Scheinleistung Gesamt"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "VA"
+    value_template: >-
+      {{ value_json['values']['Scheinleistung Gesamt']['value'] | float | round(1) }}
+    device_class: apparent_power
+    state_class: measurement
+    icon: mdi:flash-outline
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10
+
+  - name: "Blindleistung Gesamt"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "var"
+    value_template: >-
+      {{ value_json['values']['Blindleistung Gesamt']['value'] | float | round(1) }}
+    device_class: reactive_power
+    state_class: measurement
+    icon: mdi:flash-circle
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10
+
+  # Energiezähler (mit Prüfung, ob sie im JSON vorhanden sind)
+  - name: "Wirkenergie Import"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "kWh"
+    value_template: >-
+      {% if 'Wirkenergie Import (+)' in value_json.values %}
+        {{ value_json['values']['Wirkenergie Import (+)']['value'] | float | round(2) }}
+      {% else %}
+        0
+      {% endif %}
+    device_class: energy
+    state_class: total_increasing
+    icon: mdi:counter
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10
+
+  - name: "Wirkenergie Export"
+    state_topic: "smartmeter/data"
+    unit_of_measurement: "kWh"
+    value_template: >-
+      {% if 'Wirkenergie Export (-)' in value_json.values %}
+        {{ value_json['values']['Wirkenergie Export (-)']['value'] | float | round(2) }}
+      {% else %}
+        0
+      {% endif %}
+    device_class: energy
+    state_class: total_increasing
+    icon: mdi:counter
+    expire_after: 600
+    force_update: false
+    throttle: 00:00:10
