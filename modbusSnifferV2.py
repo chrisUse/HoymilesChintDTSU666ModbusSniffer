@@ -105,6 +105,11 @@ def decode_modbus_frame(frame):
                 result['request_type'] = 'request'
                 result['start_addr'] = start_addr
                 result['reg_count'] = reg_count
+                
+                # Speichere diese Anfrage für die nächste Antwort
+                global last_request_start_addr, last_request_registers
+                last_request_start_addr = start_addr
+                last_request_registers = reg_count
             return result
         
         # Bei der Antwort
@@ -125,12 +130,19 @@ def decode_modbus_frame(frame):
         result['data_len'] = data_len
         result['registers'] = registers
         
-        # Wenn erste 4 Bytes des vorherigen Frames gespeichert sind, 
-        # können wir die Startadresse ermitteln
-        global last_request_start_addr
+        # Versuche, die Register basierend auf der letzten Anfrage zu interpretieren
         if last_request_start_addr is not None:
-            result['smart_meter_values'] = decode_smart_meter_registers(registers, last_request_start_addr)
-            last_request_start_addr = None
+            try:
+                result['smart_meter_values'] = decode_smart_meter_registers(registers, last_request_start_addr)
+            except Exception as e:
+                # Bei Fehlern bei der Dekodierung, versuche es ohne Startadresse
+                print(f"Fehler bei Dekodierung mit bekannter Startadresse: {e}")
+                result['smart_meter_values'] = decode_smart_meter_registers(registers)
+            
+            # Anfrage als verarbeitet markieren, wenn die Anzahl der Register übereinstimmt
+            if last_request_registers is not None and len(registers) == last_request_registers:
+                last_request_start_addr = None
+                last_request_registers = None
     
     # Funktion 16: Write Multiple Registers
     elif function_code == 16:
@@ -170,15 +182,51 @@ def print_frame_info(frame_info):
     if frame_info['function_code'] == 3 and 'registers' in frame_info:
         # Nur bei vollständigen Antworten Register anzeigen
         if frame_info.get('request_type') == 'response':
-            print("Register-Werte:")
-            for i, reg in enumerate(frame_info['registers']):
-                print(f"  Register {i}: {reg} (0x{reg:04X})")
+            # Rohe Register-Werte anzeigen
+            if len(frame_info['registers']) <= 20:  # Bei vielen Registern nicht alle anzeigen
+                print("Register-Werte:")
+                for i, reg in enumerate(frame_info['registers']):
+                    print(f"  Register {i}: {reg} (0x{reg:04X})")
+            else:
+                print(f"Register-Werte: {len(frame_info['registers'])} Register empfangen")
             
             # Interpretierte Smart Meter Werte anzeigen
+            if 'smart_meter_values' not in frame_info or not frame_info['smart_meter_values']:
+                # Wenn keine Werte vom ersten Dekodierungsversuch, versuche es ohne Startadresse
+                smart_meter_values = decode_smart_meter_registers(frame_info['registers'])
+                if smart_meter_values:
+                    frame_info['smart_meter_values'] = smart_meter_values
+            
             if 'smart_meter_values' in frame_info and frame_info['smart_meter_values']:
                 print("\nInterpretierte Smart Meter Werte:")
+                
+                # Gruppierte Ausgabe für bessere Übersicht
+                grouped_values = {
+                    "Spannungen": {},
+                    "Ströme": {},
+                    "Leistungen": {},
+                    "Energie": {},
+                    "Sonstige": {}
+                }
+                
                 for name, info in frame_info['smart_meter_values'].items():
-                    print(f"  {name}: {info['value']:.3f} {info['unit']} (Raw: {info['raw']})")
+                    if "Spannung" in name:
+                        grouped_values["Spannungen"][name] = info
+                    elif "Strom" in name:
+                        grouped_values["Ströme"][name] = info
+                    elif any(word in name for word in ["Wirkleistung", "Scheinleistung", "Blindleistung"]):
+                        grouped_values["Leistungen"][name] = info
+                    elif any(word in name for word in ["energie", "Energie"]):
+                        grouped_values["Energie"][name] = info
+                    else:
+                        grouped_values["Sonstige"][name] = info
+                
+                # Ausgabe der gruppierten Werte
+                for group, values in grouped_values.items():
+                    if values:
+                        print(f"\n  -- {group} --")
+                        for name, info in values.items():
+                            print(f"  {name}: {info['value']:.3f} {info['unit']} (Raw: {info['raw']})")
     
     elif frame_info['function_code'] == 16:
         print(f"Start-Adresse: {frame_info.get('start_addr')}")
@@ -215,8 +263,16 @@ def interpret_float32(high_word, low_word):
     Interpretiert zwei 16-bit Register als Float32 (IEEE 754) Wert.
     CHINT G DTSU666 verwendet die Reihenfolge High-Low für 32-bit Werte.
     """
-    value_bytes = high_word.to_bytes(2, 'big') + low_word.to_bytes(2, 'big')
-    return struct.unpack('>f', value_bytes)[0]
+    try:
+        value_bytes = high_word.to_bytes(2, 'big') + low_word.to_bytes(2, 'big')
+        return struct.unpack('>f', value_bytes)[0]
+    except Exception:
+        # Alternative Byte-Reihenfolge probieren (für verschiedene Modbus-Implementierungen)
+        try:
+            value_bytes = high_word.to_bytes(2, 'little') + low_word.to_bytes(2, 'little')
+            return struct.unpack('<f', value_bytes)[0]
+        except Exception:
+            return 0.0
 
 
 def decode_smart_meter_registers(registers, request_addr=None):
@@ -233,15 +289,41 @@ def decode_smart_meter_registers(registers, request_addr=None):
     if not registers or len(registers) < 2:
         return {}
     
-    # Wenn die Anfrage-Adresse nicht bekannt ist, vermuten wir die häufigsten
+    # Wenn die Anfrage-Adresse nicht bekannt ist, versuchen wir sie zu erkennen
     if request_addr is None:
-        # Die meisten Anfragen sind entweder für Spannung/Strom (0x2000) oder
-        # für Energiezähler (0x4000)
-        if any(r > 30000 for r in registers[:4]):  # Große Werte deuten auf Energiezähler hin
-            request_addr = 0x4000
-        else:
+        # Typische Muster für Spannungs-/Strom-Daten (0x2000) erkennen
+        # CHINT DTSU666 liefert typische Werte für Spannung: 220-240V (bei 0x2000)
+        if len(registers) >= 2 and 17000 < registers[0] < 18000:
             request_addr = 0x2000
+        # Typische Muster für Energiezähler (0x4000) erkennen
+        elif len(registers) >= 2 and registers[0] > 30000:
+            request_addr = 0x4000
+        # Fallback: Wir probieren beide bekannten Startadressen
+        else:
+            # Versuche zuerst die Spannungs/Strom-Register zu dekodieren
+            result_2000 = try_decode_with_addr(registers, 0x2000)
+            # Dann die Energiezähler-Register
+            result_4000 = try_decode_with_addr(registers, 0x4000)
+            
+            # Verwende das Ergebnis mit mehr erkannten Werten
+            if len(result_4000) > len(result_2000):
+                return result_4000
+            return result_2000
     
+    return try_decode_with_addr(registers, request_addr)
+
+
+def try_decode_with_addr(registers, request_addr):
+    """
+    Versucht Register mit einer bestimmten Startadresse zu dekodieren.
+    
+    Args:
+        registers: Liste der Register-Werte
+        request_addr: Startadresse für die Interpretation
+    
+    Returns:
+        Dictionary mit interpretierten Werten
+    """
     decoded = {}
     
     # Interpretiere die Register als 32-bit Werte (jeweils 2 Register)
@@ -253,14 +335,27 @@ def decode_smart_meter_registers(registers, request_addr=None):
             low_word = registers[i + 1]
             
             if reg_info["format"] == "float32":
-                value = interpret_float32(high_word, low_word)
-                # Anwendung des Faktors für korrekte Einheit
-                value = value * reg_info["factor"]
-                decoded[reg_info["name"]] = {
-                    "value": value,
-                    "unit": reg_info["unit"],
-                    "raw": f"0x{high_word:04X}{low_word:04X}"
-                }
+                try:
+                    value = interpret_float32(high_word, low_word)
+                    # Anwendung des Faktors für korrekte Einheit
+                    value = value * reg_info["factor"]
+                    
+                    # Plausibilitätsprüfung für einige bekannte Werte
+                    if "Spannung" in reg_info["name"] and (value < 1 or value > 500):
+                        continue  # Unplausible Spannung
+                    if "Strom" in reg_info["name"] and (value < 0 or value > 100):
+                        continue  # Unplausible Stromstärke
+                    if "Frequenz" in reg_info["name"] and (value < 45 or value > 65):
+                        continue  # Unplausible Frequenz
+                    
+                    decoded[reg_info["name"]] = {
+                        "value": value,
+                        "unit": reg_info["unit"],
+                        "raw": f"0x{high_word:04X}{low_word:04X}"
+                    }
+                except Exception:
+                    # Fehlgeschlagene Float-Interpretation überspringen
+                    continue
     
     return decoded
 
@@ -338,8 +433,90 @@ def main():
             print("Serieller Port geschlossen")
 
 
-# Globale Variable zur Speicherung der letzten Anfrage-Adresse
+# Globale Variablen zur Speicherung der letzten Anfrage-Daten
 last_request_start_addr = None
+last_request_registers = None
+
+
+def main():
+    try:
+        global last_request_start_addr, last_request_registers
+        last_request_start_addr = None
+        last_request_registers = None
+        
+        ser = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=TIMEOUT)
+        print(f'Sniffe Modbus RTU auf {SERIAL_PORT} mit {BAUDRATE} Baud...')
+        print(f'Drücke STRG+C zum Beenden')
+        
+        buffer = b''
+        last_data_time = time.time()
+        
+        while True:
+            # Daten lesen
+            data = ser.read(256)
+            current_time = time.time()
+            
+            if data:
+                buffer += data
+                last_data_time = current_time
+                print(".", end="", flush=True)  # Aktivitätsindikator
+            
+            # Wenn genug Zeit ohne neue Daten vergangen ist, pufferinhalt prüfen
+            if len(buffer) > 0 and (current_time - last_data_time) > TIMEOUT:
+                frame_start = 0
+                
+                # Versuche, Frames im Buffer zu finden
+                while frame_start < len(buffer) and len(buffer) - frame_start >= MIN_FRAME_SIZE:
+                    # Versuche verschiedene Framegrößen
+                    valid_frame = None
+                    
+                    for frame_size in range(MIN_FRAME_SIZE, min(MAX_FRAME_SIZE, len(buffer) - frame_start + 1)):
+                        possible_frame = buffer[frame_start:frame_start+frame_size]
+                        if is_valid_crc(possible_frame):
+                            valid_frame = possible_frame
+                            break
+                    
+                    if valid_frame:
+                        # Frame gefunden und dekodieren
+                        frame_info = decode_modbus_frame(valid_frame)
+                        
+                        # Wenn es sich um eine Read Holding Register Anfrage handelt, 
+                        # speichere die Startadresse für die nächste Antwort
+                        if (frame_info['function_code'] == 3 and
+                            'request_type' in frame_info and 
+                            frame_info['request_type'] == 'request'):
+                            last_request_start_addr = frame_info.get('start_addr')
+                            last_request_registers = frame_info.get('reg_count')
+                        
+                        print_frame_info(frame_info)
+                        
+                        # Buffer nach dem Frame fortsetzen
+                        buffer = buffer[frame_start + len(valid_frame):]
+                        frame_start = 0
+                    else:
+                        # Keine gültige CRC, weiter im Buffer suchen
+                        frame_start += 1
+                
+                # Wenn kein Frame gefunden wurde und der Buffer zu groß wird, älteren Teil verwerfen
+                if len(buffer) > MAX_FRAME_SIZE * 2:
+                    buffer = buffer[-MAX_FRAME_SIZE:]
+            
+            time.sleep(0.01)
+    
+    except KeyboardInterrupt:
+        print("\nProgram beendet durch Benutzer")
+    except serial.SerialException as e:
+        print(f"\nFehler beim Öffnen des seriellen Ports: {e}")
+    finally:
+        if 'ser' in locals() and ser.is_open:
+            ser.close()
+            print("Serieller Port geschlossen")
+
+
+# Globale Variablen zur Speicherung der letzten Anfrage-Daten
+last_request_start_addr = None
+last_request_registers = None
+
 
 if __name__ == '__main__':
     main()
